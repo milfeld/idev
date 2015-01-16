@@ -31,6 +31,8 @@
 # about any active reservation-- do they want to use it. 
 # Use "idev -r none" to avoid questions.
 #                                                09/20/2013 KentM
+# Pushed to github repository
+#                                                01/16/2014 KentM
 #----------------------------------------------------------------
 #
 #               Versions Number
