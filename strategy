@@ -1,0 +1,23 @@
+
+KISS, the next step in idev, idev 2.0
+
+1.)  move to conversion to python.
+
+
+2.) Kent make outline for JASON of what the code does.
+
+3.) Keep bash shell driver, change perl idev_utils to python
+
+4.) Move some of the driver logic to python function calls
+
+5.) Make python easy to set up for different sites.
+
+6.) Fix up interaction with slurm
+    advantages to using C code to interface with slurm API
+
+New Features
+a.) Multi-window options
+b.) Integrating with a launcher for workflow of multiple jobs
+    Interactive Workflow Development
+c.) Maybe do VNC   idev -vnc
+d.) Extended, easy to manage preference
