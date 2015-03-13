@@ -31,8 +31,6 @@
 # about any active reservation-- do they want to use it. 
 # Use "idev -r none" to avoid questions.
 #                                                09/20/2013 KentM
-# Pushed to github repository
-#                                                01/16/2014 KentM
 #----------------------------------------------------------------
 #
 #               Versions Number
@@ -104,6 +102,7 @@ function ctrl_c() {
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
   MY_RESERVATION=""
+  RESERVATION_USE=no
 
 JOB_NAME=idv$$
 monitor_sleep=4
@@ -219,11 +218,29 @@ job_sleep=$(( MY_MINUTES * 60 ))
     idev_pwd_cmd='setenv IDEV_PWD `pwd`'
     idev_env_set=setenv
     idev_env_equal=" "
+
+                   # rm PERL5LIB for idev env_replication, but put in /tmp/env
+    idev_rm_perl5="       
+       setenv idev_has_user_PERL5LIB no
+       if (\$?PERL5LIB && { eval 'test ! -z \$PERL5LIB' } ) then
+          setenv idev_user_PERL5LIB \${PERL5LIB} && setenv idev_has_user_PERL5LIB yes
+          unsetenv PERL5LIB
+       endif
+    "
  else
     idev_login_shell=bash
     idev_pwd_cmd='export IDEV_PWD=`pwd`'
     idev_env_set=export
     idev_env_equal="="
+                   # rm PERL5LIB for idev env_replication, but put in /tmp/env
+    idev_rm_perl5='        
+       export idev_has_user_PERL5LIB=no;
+       if [[ ! -z "$PERL5LIB" ]]; then
+          export     idev_user_PERL5LIB=$PERL5LIB
+          export idev_has_user_PERL5LIB=yes
+          unset PERL5LIB
+       fi
+    '
  fi
 
 if [[ $idev_pwshell -ne $idev_login_shell ]]; then
@@ -674,6 +691,7 @@ RESERVATION_NAME_FOUND=no
              res_stat=${reservation_array[$i]}
              res_name=${reservation_array[  (($i+1)) ]}
              res_queue=${reservation_array[ (($i+2)) ]}
+             RESERVATION_USE=yes
            fi
        done
  
@@ -700,6 +718,7 @@ RESERVATION_NAME_FOUND=no
                    res_stat=INACTIVE
                    res_name=$RESERVATION_NAME
                    res_queue=$RESERVATION_QUEUE
+                   RESERVATION_USE=yes
                 else 
                    echo " Adios.  Use \"scontrol show reservations\" to view reservations."
                    exit 1
@@ -734,6 +753,8 @@ RESERVATION_NAME_FOUND=no
     if [[ $res_totl -eq 1 || (( $res_totl -ge 2 && $res_actv -eq 1 )) ]]; then
  
        if [[ $res_actv -eq 1  ]]; then
+
+          RESERVATION_USE=yes
  
           # ACTIVE Reservation
              if [[ $RESERVATION_CONTROL == USER_SET ]]; then
@@ -750,6 +771,7 @@ RESERVATION_NAME_FOUND=no
                    RESERVATION_NAME=$res_name
                    MY_RESERVATION="#SBATCH --reservation=$res_name"
                    MY_QUEUE=$res_queue
+                   RESERVATION_USE=yes
 
                 fi
              fi
@@ -760,6 +782,7 @@ RESERVATION_NAME_FOUND=no
                    RESERVATION_NAME=$res_name
                    MY_RESERVATION="#SBATCH --reservation=$res_name"
                    MY_QUEUE=$res_queue
+                   RESERVATION_USE=yes
 #CHECK
 #                  echo "Using res. queue : -p $MY_QUEUE"
              fi
@@ -776,11 +799,13 @@ RESERVATION_NAME_FOUND=no
                       RESERVATION_NAME=$res_name
                       MY_RESERVATION="#SBATCH --reservation=$res_name"
                       MY_QUEUE=$res_queue
+                      RESERVATION_USE=yes
 #CHECK
 #                     echo "Using res. queue : -p $MY_QUEUE"
                     else  #Continue on as a non-reservation request.
-                    echo " Continuing without using your reservation."
-                    echo " Use \"scontrol show reservations\" to view your reservation(s)."
+                       echo " Continuing without using your reservation."
+                       echo " Use \"scontrol show reservations\" to view your reservation(s)."
+                       RESERVATION_USE=no 
                    fi
              fi
        else        ##INACTIVE RESERVATION
@@ -791,6 +816,7 @@ RESERVATION_NAME_FOUND=no
              RESERVATION_NAME=$res_name
              MY_RESERVATION="#SBATCH --reservation=$res_name"
              MY_QUEUE=$res_queue
+             RESERVATION_USE=yes
 #CHECK
 #            echo "Using res. queue : -p $MY_QUEUE"
  
@@ -815,6 +841,7 @@ RESERVATION_NAME_FOUND=no
              echo " Use idev -r to use it when it becomes ACTIVE."
              echo " To see when it begins, execute:  scontrol show reservations"
              echo " "
+             RESERVATION_USE=no
           fi
  
        fi
@@ -846,6 +873,7 @@ RESERVATION_NAME_FOUND=no
                     MY_QUEUE=$RESERVATION_QUEUE
 #CHECK
 #                   echo "Using res. queue : -p $MY_QUEUE"
+                    RESERVATION_USE=yes
                  else 
                     echo " Adios.  Use \"scontrol show reservations\" to view reservations."
                     exit 1
@@ -858,6 +886,7 @@ RESERVATION_NAME_FOUND=no
                  MY_QUEUE=$RESERVATION_QUEUE
 #CHECK
 #                echo "Using res. queue : -p $MY_QUEUE"
+                 RESERVATION_USE=yes
               fi
            fi
         fi
@@ -889,7 +918,7 @@ RESERVATION_NAME_FOUND=no
           else 
              echo -e "\n FYI: You have $res_totl INACTIVE reservations."
              echo -e "      Idev is not asking to use them because they are INACTIVE."
-             echo -e "      If you want to wait on them use re-execute idev with the -r option."
+             echo -e "      If you want to wait on them re-execute idev with the -r option."
              exit 1
           fi
        fi
@@ -915,7 +944,7 @@ fi
 ################
 #                                       Make adjustment if reservation doesn't have a queue.
 ##                                       -- when queue is '(null)'
-                   if [[ $res_queue == '(null)' ]]; then
+                   if [[ $res_queue == '(null)' && $RESERVATION_USE == yes ]]; then
                       if [[ $queue_from == cmdline ]]; then
 
                          MY_QUEUE=$CMDLINE_QUEUE
@@ -934,11 +963,11 @@ fi
 
                          exit 1
                       fi
-                   else
-##                                      Else, use the queue of the reservation
-                      MY_QUEUE=$CMDLINE_QUEUE
-                      MY_QUEUE=$res_queue
-                      echo "Using res. queue : -p $MY_QUEUE"
+                  #else
+##                #                     Else, use the queue of the reservation
+                  #   MY_QUEUE=$CMDLINE_QUEUE
+                  #   MY_QUEUE=$res_queue
+                  #   echo "Using res. queue : -p $MY_QUEUE"
 
                    fi
 
@@ -1242,13 +1271,14 @@ cat >/tmp/myjob_$USER.$$ <<EOF
 $MY_RESERVATION
 
 $idev_pwd_cmd
+$idev_rm_perl5
 $DIR/idev_utils env_replication ${idev_login_shell} \$SLURM_JOB_ID
 $CREATE_NODE_LIST_CMD
 sleep $job_sleep
 
 EOF
 
- #cp    /tmp/myjob_$USER.$$ /tmp/$USER_idev_job_$$
+ #cp    /tmp/myjob_$USER.$$ seemore
  sbatch /tmp/myjob_$USER.$$
 
  if [[ $? != 0 ]]; then

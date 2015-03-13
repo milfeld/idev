@@ -132,7 +132,7 @@ sub env_replication(@){
    $my_shell = shift(@_);
    $my_idev  = shift(@_);
 
-   my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module%% );
+   my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module%% BASH_FUNC_ml%%);
    my %exclude;
    foreach (@env_exclude_list) { $exclude{$_} = 1; }
 
@@ -175,6 +175,13 @@ sub env_replication(@){
          $myenv{$key} = $value;
         #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
       }
+   }
+
+#  We avoid any problems users create with PERL5LIB, by
+#  running without it, but we put it back in their environment
+
+   if( $ENV{"idev_has_user_PERL5LIB"} eq "yes" ){
+      $myenv{"PERL5LIB"} = $ENV{"idev_user_PERL5LIB"};
    }
 
 #  TACC FIX, set SHELL to login shell.
