@@ -31,6 +31,13 @@
 # about any active reservation-- do they want to use it. 
 # Use "idev -r none" to avoid questions.
 #                                                09/20/2013 KentM
+# Remove SSH_xxx from environment
+# Allow users to remove environment variables
+# by adding idev_rm_env=<space-separated list of env vars>
+#
+# Eliminates PERL5LIB from idev environment when
+# executing idev perl commands.
+#                                                03/30/2015 KentM 
 #----------------------------------------------------------------
 #
 #               Versions Number
@@ -198,6 +205,16 @@ job_sleep=$(( MY_MINUTES * 60 ))
         echo "Default  queue   : $MY_QUEUE"
 
      fi
+
+     grep -q idev_rm_env $HOME/.idevrc
+     if [[ $? == 0 ]]; then
+        IDEV_RM_ENV=`grep idev_rm_env $HOME/.idevrc | sed 's/idev_rm_env//'`
+        IDEV_RM_ENV="${IDEV_RM_ENV%\\n}"               # get rid of return
+        IDEV_RM_ENV=`echo "$IDEV_RM_ENV" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
+        echo "Removed env vars : $IDEV_RM_ENV"
+        export IDEV_RM_ENV
+     fi
+
   fi
 
 # Determine my present working shell
@@ -403,6 +420,12 @@ fi
                   echo "       without quotes, one item per line in ~/.idevrc to set your own default "
                   echo "       time, queue and project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
                   echo "       E.g.  idev_time 60  <new line> idev_queue normal " 
+                  echo ""
+                  echo "Insert  \"idev_rm_env VAR_LIST\" "
+                  echo "        in ~/.idevrc, where VAR_LIST is a space separated list of environment variables "
+                  echo "        not to be replicated from the job environment initialized by idev.  "
+                  echo "        Note: all SSH_xx variables are removed by default so that all interactive "
+                  echo "              ssh terminal sessions have their correct SSH_xx values for a new session."
 #                 echo ""
                   do_exit=yes; OPT_ERR=0
    fi
@@ -958,7 +981,7 @@ fi
                          echo "           NO queue was assigned when the reservation was made "
                          echo "           and NO queue is specified on the idev command line."
                          echo "           Specify a queue (-p option) that contains the nodes"
-                         echo "           of your reservation, or ask the person who make the"
+                         echo "           of your reservation, or ask the person who made the"
                          echo "           reservation to include a queue for the nodes."
 
                          exit 1

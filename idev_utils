@@ -48,6 +48,8 @@ use File::Basename;
 #   Set SHELL to login shell.  Thanks to Robert Mclay.     05/01/2012
 
 #   Included routine to return SLURM reservations          09/20/2013
+#   Remove SSH environment variables                       03/27/2015
+#   Allow user to list env vars to exclude in .idevrc      03/27/2015
 
 
 
@@ -82,7 +84,7 @@ sub get_reservation($){
    $reservations="";
    $USER=shift(@_);
    open(RESERVATIONS,"scontrol show reservations | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
-  #open(RESERVATIONS,"cat ./res | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+  #open(RESERVATIONS,"cat ./see_0a0i0n | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
    while(<RESERVATIONS>){
      #if( $status eq "none" ){    #just find the first reservation
          chomp;
@@ -132,9 +134,15 @@ sub env_replication(@){
    $my_shell = shift(@_);
    $my_idev  = shift(@_);
 
-   my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module%% BASH_FUNC_ml%%);
+   my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module%% BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
    my %exclude;
    foreach (@env_exclude_list) { $exclude{$_} = 1; }
+
+#                          Allow users to submit a list of env vars to exclude.
+  if( defined $ENV{"IDEV_RM_ENV"}){
+   @idev_rm_list = split(/ +/,$ENV{"IDEV_RM_ENV"});
+   foreach (@idev_rm_list) { $exclude{$_} = 1; }
+  }
 
 #  TACC Site variable.
 #          Lets ibrun know idev is running, and not to 
