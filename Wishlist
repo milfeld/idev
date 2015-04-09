@@ -1,0 +1,16 @@
+Highest priority is 10:
+
+10 When projects go inactive, ask the user to select a new default.
+10 Record the amount of time required to get nodes. (queue, nodes, time)
+ 9 Better description when idev aborts when user tries a second idev 
+   (in development queue)
+
+ 5 Have a debug mode
+ 5 allow  comments ON idevrc lines
+ 5 allow notification when idev job begins (e.g. large node count debug requests)
+   (allow job to be cancelled if no response within x minutes?)
+
+
+Tickets:
+ticket 21167 (lonestar freeze)
+ticket 19330   Termcap problem
