@@ -1,4 +1,4 @@
-#!/opt/apps/intel14/mvapich2_2_0/python/2.7.6/bin/python
+#!/opt/apps/intel13/python/2.7.9/bin/python
 
 import subprocess
 import os
@@ -73,7 +73,7 @@ class Idevrc:
         self.queue        = queue_line.group(1)
         self.queue_status = "has_queue"
 
-    # put_default(self,default_name, default_value):
+  # put_default(self,default_name, default_value):
 
 if __name__ == "__main__":
   rc=Idevrc()

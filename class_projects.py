@@ -1,4 +1,4 @@
-#!/opt/apps/intel14/mvapich2_2_0/python/2.7.6/bin/python
+#!/opt/apps/intel13/python/2.7.9/bin/python
 
 import subprocess
 import os
@@ -28,7 +28,7 @@ class Project:
 
     self.rc = rc
     if(rc.proj_default_status == "has_default"):
-        self.project_name = rc.proj_default   #should this be global?
+    self.project_name = rc.proj_default   #should this be global?
       self.select_project = "no"
     else:
       self.select_project = "yes"
