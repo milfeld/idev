@@ -73,7 +73,7 @@ class Idevrc:
         self.queue        = queue_line.group(1)
         self.queue_status = "has_queue"
 
-	# put_default(self,default_name, default_value):
+    # put_default(self,default_name, default_value):
 
 if __name__ == "__main__":
   rc=Idevrc()
