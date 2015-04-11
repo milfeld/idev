@@ -38,6 +38,8 @@
 # Eliminates PERL5LIB from idev environment when
 # executing idev perl commands.
 #                                                03/30/2015 KentM 
+# Include setup for Wrangler
+#                                                04/11/2015 KentM 
 #----------------------------------------------------------------
 #
 #               Versions Number
@@ -62,7 +64,7 @@ function ctrl_c() {
            if [[ $did_exit == no ]]; then
              echo "Cleaning up: submitted job ($job_submitted) removing job $job_id."
  
-             if [[ $MY_SYS == "stampede" ]]; then
+             if [[ $MY_SYS == "stampede" || $MY_SYS == "wrangler" ]]; then
                 scancel $job_id
              else
                 qdel    $job_id
@@ -105,6 +107,12 @@ function ctrl_c() {
   MY_hhmmss_TIME=00:${MY_MINUTES}:00
   MY_H_RT="h_rt=$MY_hhmmss_TIME"
   MY_QUEUE=development
+  ACCT_TEST_QUEUE=normal
+  if [[ $MY_SYS == "wrangler" ]]; then
+     MY_QUEUE=debug
+     ACCT_TEST_QUEUE=debug
+  fi
+
 
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
@@ -271,8 +279,8 @@ MY_RESOURCE=""
 CREATE_NODE_LIST_CMD=""
 
 #OPERATION  Set batch system parameters.
-
-JOB_NAME=idv$$
+mypid=$$
+JOB_NAME=idv${mypid:(-5)}
 monitor_sleep=4
 sleep_after_run_factor=4
 job_sleep=$(( MY_MINUTES * 60 ))
@@ -308,6 +316,19 @@ case $MY_SYS in
              export IDEV_QDEL=scancel
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
              ;;
+
+   wrangler) echo "System           : Wrangler"
+             MY_WAY=24;         MY_CORES=24; CpN=24 # Cores/Node
+             MY_TOTAL_TASKS=24; MY_NODES=1;  CpN=24 # Cores/Node
+             MY_PROJECT=""
+             sleep_after_run=7
+             BATCH_SYS=SLURM
+             Q="-p"
+             IDEV_NODES=""    #Usually not set
+             export IDEV_QDEL=scancel
+             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
+             ;;
+
           *) echo " Don't know about this system ($MY_SYS)"
              exit 1
              ;;
@@ -704,29 +725,30 @@ RESERVATION_NAME_FOUND=no
  #                          Get ACTIVE reservation  information here.
    #if [[ $res_totl -ge 2 && $res_actv -le 1 ]]; then
     if [[ $res_totl -ge 2 ]]; then
-       for((i=0;i<${#reservation_array[@]};i++))
+       for((i=0;i<${#reservation_array[@]};i++)) #just plow through each line
        do
  #                         Find 1 ACTIVE reservation.
  #                         For res_actv=0, nothing changes since ACTIVE not found.
  #                         We avoid the case for 2 or more ACTIVE reservations (later).
            #echo "RES_NAME $i ${reservation_array[$i]}"
            if [[ ${reservation_array[$i]} == ACTIVE ]]; then
-             res_stat=${reservation_array[$i]}
-             res_name=${reservation_array[  (($i+1)) ]}
-             res_queue=${reservation_array[ (($i+2)) ]}
+             res_stat=${reservation_array[      $i     ]}
+             res_name=${reservation_array[    (($i+1)) ]}
+             res_queue=${reservation_array[   (($i+2)) ]}
              RESERVATION_USE=yes
            fi
        done
  
- #                         We validate what the user has set a valid name.
+ #                         We validate what the user has set has a valid name.
  #                         This many not be an (the) active reservation!
        if [[ $RESERVATION_CONTROL == USER_SET ]]; then
        for((i=0;i<${#reservation_array[@]};i++))
        do
           if [[ ${reservation_array[$i]} == $RESERVATION_NAME ]]; then
              RESERVATION_NAME_FOUND=yes 
-             RESERVATION_STATUS=${reservation_array[ (($i-1)) ]}
-             RESERVATION_QUEUE=${reservation_array[  (($i+1)) ]}
+             RESERVATION_STATUS=${reservation_array[  (($i-1)) ]}
+             RESERVATION_QUEUE=${reservation_array[   (($i+1)) ]}
+
              if [[ $RESERVATION_STATUS == INACTIVE && $res_actv == 1 ]]; then
                 echo " NOTE: you have requested a INACTIVE reservation ($RESERVATION_NAME)."
                 echo " NOTE: $res_name is your ACTIVE reservation." 
@@ -1065,7 +1087,7 @@ cat <<EOF >/tmp/idev_acct_job_$my_pid
 #!/bin/bash
 #SBATCH -J acct_tes
 #SBATCH -o /dev/null
-#SBATCH -p normal
+#SBATCH -p $ACCT_TEST_QUEUE
 #SBATCH -n 16
 #SBATCH -t 00:01:00
 EOF
@@ -1123,7 +1145,7 @@ fi
      #  echo " You have a single project named ${project_array[0]}."
      #  MY_ACCOUNT=${project_array[0]}
      #  echo "idev_project ${project_array[$array_no]}" >> $HOME/.idevrc
-        echo " You have a single project which we will use as the default ."
+        echo " You have a single project which we will use as the default."
         MY_ACCOUNT=${project_array[0]}
         echo "idev_project ${project_array[$array_no]}" >> $HOME/.idevrc
 
@@ -1231,8 +1253,6 @@ EOF
  ##   cp         $intel_dir/$intel_license $my_intel_dir
  ##fi
  
- 
- 
  echo -e "\n After your idev job begins to run, a command prompt will appear,"
  echo -e   " and you can begin your interactive development session. "
   
@@ -1301,7 +1321,7 @@ sleep $job_sleep
 
 EOF
 
- #cp    /tmp/myjob_$USER.$$ seemore
+#cp     /tmp/myjob_$USER.$$ seemore
  sbatch /tmp/myjob_$USER.$$
 
  if [[ $? != 0 ]]; then
