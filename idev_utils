@@ -93,11 +93,17 @@ sub get_reservation($){
              $res_name =~ s/ReservationName=//;
              $res_name =~ s/ .*//;
          }
-         if( /Nodes=/ ){
-             $partition=$_;           #do this the quick way
-             $partition =~ s/.*PartitionName=//;
-             $partition =~ s/ .*//;
-         }
+
+          if( /Nodes=/ ){
+              if( /PartitionName=/ ){
+                  $partition=$_;           #do this the quick way
+                  $partition =~ s/.*PartitionName=//;
+                  $partition =~ s/ .*//;
+              }
+              else {
+                  $partition = "(null)";
+              }
+          }
 
          if( /Users=/ ){
             if( /\b$USER\b/ ){
