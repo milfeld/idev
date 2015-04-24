@@ -1,33 +1,76 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-''' Idev: Creates job, waits for run state, and ssh's to master node '''
-
+## 
+# @package idev
+# @authors Kent Milfeld, Jason Allison, W. Cyrus Proctor
+# @note TACC
+# @copyright License
+#
+# @ brief Creates job, waits for run state, and ssh's to master node
+# 
 # Basic shell:  ssh to a node, exit and kill job.  kfm 4/8/2015
+# Detailed description
+#
 
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
+# System modules
 import subprocess
 
+#------------------------------------------------------------------------------
 
+# Local modules
+import parse
+
+
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
+## Submit a job
+#
+# Detailed description
+# @param job_script describe variable job_script
+#
+# Returns ?
+#
 def submit_job(job_script):
   print "sub_job"
-# ...
+
+# http://www.python-course.eu/forking.php
+# https://docs.python.org/2/library/sys.html
+
+## ssh to node
+#
+#
+def ssh():
+  try:
+  
+    print "SSHing to a node"
+    subprocess.call(['ssh','-Y',master_node])
+  
+  except:
+    print "Canceling Job -- from exception"
+  else:
+    print "Canceling Job"
+    subprocess.call(['scancel',job_id])
 
 
-__name__ == "__main__"
 
-master_node = "c560-802"
-job_id      = "5086035"
-
-try:
-
-  print "SSHing to a node"
-  subprocess.call(['ssh','-Y',master_node])
-
-except:
-  print "Canceling Job -- from exception"
-else:
-  print "Canceling Job"
-  subprocess.call(['scancel',job_id])
+## Top-level call
+#
+# Detailed description
+#
+#
+def idev():
+  # Parse command-line arguments
+  parse.parse()
 
 
 
-#http://www.python-course.eu/forking.php
-#https://docs.python.org/2/library/sys.html
+if __name__ == "__main__":
+  master_node = "c560-802"
+  job_id      = "5086035"
+  idev()

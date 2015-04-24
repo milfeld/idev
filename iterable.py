@@ -1,17 +1,25 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-# W. Cyrus Proctor
-# 2015-04-15      
-# TACC            
-# License         
+# @author W. Cyrus Proctor
+# @date 2015-04-15      
+# @note TACC            
+# @copyright License         
 
 
-## @file experiments/python_util/iterable.py
-#  @author W. Cyrus Proctor
-#  @date Thursday September 26 14:50:32
-#  @note Copywrite (C) 2012 W. Cyrus Proctor
-#  @brief Functions concerning iterable variables
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 
-#print "iterable Imported"
+# System modules
+
+#------------------------------------------------------------------------------
+
+# Local modules
+
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
 
 ## Try to make a variable iterable
 #

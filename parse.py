@@ -1,8 +1,14 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-# W. Cyrus Proctor
-# 2015-04-15
-# TACC
-# License
+
+## hello world 
+# @file
+# @author W. Cyrus Proctor
+# @date 2015-04-15
+# @note TACC
+# @copyright License
+#
+#
+# Detailed description
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -34,7 +40,6 @@ from decorators import timing, echo
 #  Returns a string hms_time formatted as "hh:mm:ss"
 #
 def min2hms(min_time):
-  """Convert time in (int) minutes to time in hh:mm:ss (str) format"""
   s = 0
   h, m = divmod(min_time, 60)
   hms_time = "%02d:%02d:%02d" % (h, m, s)
@@ -53,7 +58,6 @@ def min2hms(min_time):
 @timing
 @echo
 def add_arguments(parser):
-  """ testing add_arguments"""
   
   # Will parse out of .idevrc
   idevrc_project    = "A-ccsc"                 # TACC internal
@@ -148,19 +152,26 @@ def add_arguments(parser):
 
   return parser
 #------------------------------------------------------------------------------
-
+## My appliance
+#
+# Detailed description
 class Appliance:
-  """ Test Appliance"""
+  ## Constructor
+  #
+  # Detailed description
+  # @param cores_per_node
+  #
   def __init__(self, cores_per_node):
-    """ Test Appliance init"""
     self.cores_per_node = cores_per_node
   # TODO: Hold appliance-specific information -- core counts, etc.
 #------------------------------------------------------------------------------
 
+## My idevrc data class
+#
+# Detailed description
+# 
 class Idevrc(Appliance):
-  """Test Idevrc"""
   def __init__(self, project, min_time, queue):
-    """ Test Idevrc init"""
     self.project  = project
     self.min_time = min_time
     self.hms_time = min2hms(min_time)
@@ -170,10 +181,14 @@ class Idevrc(Appliance):
 
 #------------------------------------------------------------------------------
 
+## Parse out command-line options for use with pidev
+#
+# Detailed description
+#
+#
 @timing
 @echo
 def parse():
-  """ Test parse"""
 
   # idev introductory help message
   idev_prologue = \

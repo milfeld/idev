@@ -1,10 +1,33 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
+# @author Kent Milfeld
+# @date 2015-04-24
+# @note TACC
+# @copyright License
 
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
+# System modules
 import subprocess
 import os
 import re
 
-class Project:
+#------------------------------------------------------------------------------
+
+# Local modules
+
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+
+## Brief project class description
+#
+# Detailed description
+#
+class Project():
   """Gathers project information
       instantiation 
         no default projects--> idev_none   
@@ -23,7 +46,10 @@ class Project:
         requests user to select a default project or select from multiple projs.
 
    """
-#                          #On instantiation, set up and fill arrays
+  ## Constructor brief
+  # 
+  # On instantiation, set up and fill arrays
+  #
   def __init__(self,rc):
 
     self.rc = rc
@@ -35,6 +61,10 @@ class Project:
 
     #output=subprocess.check_output('cat $HOME/.idevrc',shell=True)
 
+  ## brief
+  #
+  # 
+  #
   def get_projects(self,user):
     self.user = user
     for line in output.split(os.linesep):
@@ -52,8 +82,9 @@ class Project:
         self.proj_list        = list_line.group(1).split('/,/')
         self.proj_list_status = "has_list"
 
-#                                          # Create user_actv / usr_inactv arrays
-#                                          # if user has reservation(s).
+  ## brief
+  # Create user_actv / usr_inactv arrays
+  # if user has reservation(s).
   def get_projects(self,user):
 
     self.proj_user = user

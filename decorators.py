@@ -1,13 +1,13 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python 
-# W. Cyrus Proctor                          
-# 2015-04-15                                
-# TACC                                      
-# License                                   
+# @author W. Cyrus Proctor                          
+# @date 2015-04-15                                
+# @note TACC                                      
+# @copyright License                                   
 
-## \file experiments/python_util/dateortime.py
-# \author W. Cyrus Proctor
-# \date Thursday November 21 9:49:17
-# \note Copywrite (C) 2013 W. Cyrus Proctor
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 
 # System Modules
 import sys
@@ -16,10 +16,18 @@ import datetime
 import os
 import functools
 
+#------------------------------------------------------------------------------
+
 # Local Modules
 import config
 
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 
+##
+#
+#
 def datetime_to_string():
   t = datetime.datetime.now()
 
@@ -32,8 +40,11 @@ def datetime_to_string():
 
   return dtstr
 
+#------------------------------------------------------------------------------
 
-
+##
+#
+#
 def timer(denovo_inst):
   def actualDecorator(test_func):
     @functools.wraps(test_func)
@@ -47,8 +58,11 @@ def timer(denovo_inst):
     return wrapper
   return actualDecorator
 
+#------------------------------------------------------------------------------
 
-
+##
+#
+#
 def timing(f):
   def wrap(*args,**kwargs):
     time1 = time.time()
@@ -59,22 +73,20 @@ def timing(f):
     return ret
   return wrap
 
+#------------------------------------------------------------------------------
 
-def dump_args(func):
-  "This decorator dumps out the arguments passed to a function before calling it"
-  argnames = func.func_code.co_varnames[:func.func_code.co_argcount]
-  fname = func.func_name
-  def echo_func(*args,**kwargs):
-      print fname, "(", ', '.join(
-          '%s=%r' % entry
-          for entry in zip(argnames,args[:len(argnames)])+
-            [("args",list(args[len(argnames):]))]+[("kwargs",kwargs)]) +")"
-  return echo_func
-
+##
+#
+#
 def name(item):
   " Return an item's name. "
   return item.__name__
-    
+
+#------------------------------------------------------------------------------
+
+##
+#
+#    
 def format_arg_value(arg_val):
   """ Return a string representing a (name, value) pair.
   
@@ -83,7 +95,12 @@ def format_arg_value(arg_val):
   """
   arg, val = arg_val
   return "%s=%r" % (arg, val)
-  
+
+#------------------------------------------------------------------------------
+
+##
+#
+#  
 def echo(fn, write=sys.stdout.write):
   """ Echo calls to a function.
   
@@ -99,6 +116,9 @@ def echo(fn, write=sys.stdout.write):
   fn_defaults = fn.func_defaults or list()
   argdefs     = dict(zip(argnames[-len(fn_defaults):], fn_defaults))
   
+  ##
+  #
+  #
   @functools.wraps(fn)
   def wrapped(*v, **k):
     """Collect function arguments by chaining together positional,
