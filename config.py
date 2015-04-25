@@ -9,6 +9,6 @@ name         = 'pidev'
 ## Project Version
 version      = 0.1
 ## Toggle idev debug mode on/off with True/False
-debug        = True
+debug        = False
 ## Toggle idev timing mode on/off with True/False
-timing       = True
+timing       = False

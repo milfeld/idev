@@ -48,6 +48,7 @@
 #           |                              |                    |
 #         return                         return           unknown error
 # @endverbatim
+# @todo fix except to raise
 def ensure_iterable_variable(variable):
   if variable == None:
     variable = []
@@ -79,6 +80,7 @@ def ensure_iterable_variable(variable):
 # the user and crash out.
 #
 # @param variable The variable to be checked to see if one can iterate on it
+# @todo fix except to raise
 def iterable_variable_check(variable):
   try:
     iterator = iter(variable)
@@ -87,3 +89,13 @@ def iterable_variable_check(variable):
     print "Encapsulate in square brackets '[]'"
     print "or create a range(variable) or xrange(variable)"
     exit(-1)
+
+## convert to int
+#
+#
+def list_to_int(variable):
+  if isinstance(variable, type(list())) and len(variable) == 1:
+    return int(''.join(map(str, variable)))
+  else:
+    raise TypeError("{0} is not a list of length 1!".format(variable))
+
