@@ -71,7 +71,6 @@ class Parse():
   # Given an argparse.ArgumentParser instance, add required, optional and 
   # mutually exclusive command-line arguments and return.
   #
-  # @param parser is an intialized instance of argparse.ArgumentParser class
   #
   # Returns the instance with the arguments added.
   @timing
@@ -189,7 +188,7 @@ class Parse():
   #
   # Detailed description
   #
-  # @test_cml_args Used to send a list of command-line arguments for unit testing
+  # @param test_cml_args Used to send a list of command-line arguments for unit testing
   #
   # @todo Print TACC system defaults 
   # @todo Print User's idevrc defaults
