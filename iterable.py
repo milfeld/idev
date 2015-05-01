@@ -1,8 +1,10 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-# @author W. Cyrus Proctor
-# @date 2015-04-15      
-# @note TACC            
-# @copyright License         
+"""
+author W. Cyrus Proctor
+date 2015-04-15      
+note TACC            
+copyright License
+"""
 
 
 #------------------------------------------------------------------------------
@@ -21,35 +23,35 @@
 #------------------------------------------------------------------------------
 
 
-## Try to make a variable iterable
-#
-# Error checking to see if a variable can be iterable, i.e. to see if it
-# can be used as the basis to drive a for loop. If not, then alert
-# the user and crash out.
-#
-# @param variable The variable to be checked to see if one can iterate on it
-#
-# @verbatim
-#                     is variable iterable?
-#                              |
-#                           -------
-#                          |       |
-#                         Yes      No
-#                          |       |
-#                -----------       ---------------
-#                |                               |
-#         is variable a str?           wrap in square brackets
-#                |                               |
-#            --------------------         is variable iterable?
-#           |                    |               |
-#          Yes                   No         --------------------    
-#           |                    |         |                    |
-#  wrap in square brackets     return     yes                   no
-#           |                              |                    |
-#         return                         return           unknown error
-# @endverbatim
-# @todo fix except to raise
 def ensure_iterable_variable(variable):
+  """
+  Try to make a variable iterable
+  
+  Error checking to see if a variable can be iterable, i.e. to see if it
+  can be used as the basis to drive a for loop. If not, then alert
+  the user and crash out.
+  
+  variable The variable to be checked to see if one can iterate on it
+  
+                      is variable iterable?
+                               |
+                            -------
+                           |       |
+                          Yes      No
+                           |       |
+                 -----------       ---------------
+                 |                               |
+          is variable a str?           wrap in square brackets
+                 |                               |
+             --------------------         is variable iterable?
+            |                    |               |
+           Yes                   No         --------------------    
+            |                    |         |                    |
+   wrap in square brackets     return     yes                   no
+            |                              |                    |
+          return                         return           unknown error
+  todo fix except to raise
+  """
   if variable == None:
     variable = []
   variable_temp = variable
@@ -73,15 +75,17 @@ def ensure_iterable_variable(variable):
 #------------------------------------------------------------------------------
 
 
-## Check if a variable is iterable.
-#
-# Error checking to see if a variable is iterable, i.e. to see if it
-# can be used as the basis to drive a for loop. If not, then alert
-# the user and crash out.
-#
-# @param variable The variable to be checked to see if one can iterate on it
-# @todo fix except to raise
 def iterable_variable_check(variable):
+  """
+  Check if a variable is iterable.
+  
+  Error checking to see if a variable is iterable, i.e. to see if it
+  can be used as the basis to drive a for loop. If not, then alert
+  the user and crash out.
+  
+  variable The variable to be checked to see if one can iterate on it
+  todo fix except to raise
+  """
   try:
     iterator = iter(variable)
   except TypeError:
@@ -90,10 +94,10 @@ def iterable_variable_check(variable):
     print "or create a range(variable) or xrange(variable)"
     exit(-1)
 
-## convert to int
-#
-#
 def list_to_int(variable):
+  """
+  convert to int
+  """
   if isinstance(variable, type(list())) and len(variable) == 1:
     return int(''.join(map(str, variable)))
   else:

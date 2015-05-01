@@ -1,8 +1,10 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-# @author Kent Milfeld
-# @date 2015-04-24
-# @note TACC
-# @copyright License
+"""
+author Kent Milfeld
+date 2015-04-24
+note TACC
+copyright License
+"""
 
 
 #------------------------------------------------------------------------------
@@ -23,10 +25,6 @@ import re
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
-## Brief project class description
-#
-# Detailed description
-#
 class Project():
   """Gathers project information
       instantiation 
@@ -46,26 +44,26 @@ class Project():
         requests user to select a default project or select from multiple projs.
 
    """
-  ## Constructor brief
-  # 
-  # On instantiation, set up and fill arrays
-  #
   def __init__(self,rc):
+    """
+     Constructor brief
+    
+    On instantiation, set up and fill arrays
+    """
 
     self.rc = rc
     if(rc.proj_default_status == "has_default"):
-    self.project_name = rc.proj_default   #should this be global?
+      self.project_name = rc.proj_default   #should this be global?
       self.select_project = "no"
     else:
       self.select_project = "yes"
 
     #output=subprocess.check_output('cat $HOME/.idevrc',shell=True)
 
-  ## brief
-  #
-  # 
-  #
   def get_projects(self,user):
+    """
+    brief
+    """
     self.user = user
     for line in output.split(os.linesep):
       default_m      = reo_proj_default.match(     line)
@@ -82,10 +80,12 @@ class Project():
         self.proj_list        = list_line.group(1).split('/,/')
         self.proj_list_status = "has_list"
 
-  ## brief
-  # Create user_actv / usr_inactv arrays
-  # if user has reservation(s).
   def get_projects(self,user):
+    """
+    brief
+    Create user_actv / usr_inactv arrays
+    if user has reservation(s).
+    """
 
     self.proj_user = user
     projectuser_map = "/usr/local/etc/project.map"
@@ -97,7 +97,8 @@ class Project():
 
     for line in output.split(os.linesep):
       proj_m = reo_proj.match(line)
-      if(proj_m)    
+      if(proj_m):
+        pass 
 
 #  p_user = re.compile(r'\b%s\b'%self.user)  # Use "breaks" around user. A jack search 
 #                                               # distinguishes between jack and jackson

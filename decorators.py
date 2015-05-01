@@ -1,8 +1,10 @@
-#!/opt/apps/intel13/python/2.7.9/bin/python 
-# @author W. Cyrus Proctor                          
-# @date 2015-04-15                                
-# @note TACC                                      
-# @copyright License                                   
+#!/opt/apps/intel13/python/2.7.9/bin/python
+"""
+author W. Cyrus Proctor                          
+date 2015-04-15                                
+note TACC                                      
+copyright License
+"""
 
 
 #------------------------------------------------------------------------------
@@ -25,10 +27,8 @@ import config
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
-##
-#
-#
 def datetime_to_string():
+  """ Return datetime in string format"""
   t = datetime.datetime.now()
 
   dtstr = str(t.year) + '-' + \
@@ -42,28 +42,23 @@ def datetime_to_string():
 
 #------------------------------------------------------------------------------
 
-##
-#
-#
-def timer(denovo_inst):
-  def actualDecorator(test_func):
-    @functools.wraps(test_func)
-    def wrapper(*args, **kwargs):
-      time1 = time.time()
-      ret = test_func(*args,**kwargs)
-      time2 = time.time()
-      if denovo_inst.node() == 0:
-        print '%s function took %0.3f s' % (test_func.__name__, (time2-time1))
-      return ret 
-    return wrapper
-  return actualDecorator
+#def timer(denovo_inst):
+#  def actualDecorator(test_func):
+#    @functools.wraps(test_func)
+#    def wrapper(*args, **kwargs):
+#      time1 = time.time()
+#      ret = test_func(*args,**kwargs)
+#      time2 = time.time()
+#      if denovo_inst.node() == 0:
+#        print '%s function took %0.3f s' % (test_func.__name__, (time2-time1))
+#      return ret 
+#    return wrapper
+#  return actualDecorator
 
 #------------------------------------------------------------------------------
 
-##
-#
-#
 def timing(f):
+  """ Function decorator that times how long the function took"""
   def wrap(*args,**kwargs):
     time1 = time.time()
     ret = f(*args,**kwargs)
@@ -75,20 +70,15 @@ def timing(f):
 
 #------------------------------------------------------------------------------
 
-##
-#
-#
 def name(item):
-  " Return an item's name. "
+  """ Return an item's name."""
   return item.__name__
 
 #------------------------------------------------------------------------------
 
-##
-#
-#    
 def format_arg_value(arg_val):
-  """ Return a string representing a (name, value) pair.
+  """ 
+  Return a string representing a (name, value) pair.
   
   >>> format_arg_value(('x', (1, 2, 3)))
   'x=(1, 2, 3)'
@@ -98,9 +88,6 @@ def format_arg_value(arg_val):
 
 #------------------------------------------------------------------------------
 
-##
-#
-#  
 def echo(fn, write=sys.stdout.write):
   """ Echo calls to a function.
   
@@ -116,12 +103,10 @@ def echo(fn, write=sys.stdout.write):
   fn_defaults = fn.func_defaults or list()
   argdefs     = dict(zip(argnames[-len(fn_defaults):], fn_defaults))
   
-  ##
-  #
-  #
   @functools.wraps(fn)
   def wrapped(*v, **k):
-    """Collect function arguments by chaining together positional,
+    """
+    Collect function arguments by chaining together positional,
     # defaulted, extra positional and keyword arguments.
     """
     positional = map(format_arg_value, zip(argnames, v))

@@ -1,4 +1,5 @@
-## Description
-#
-# @author W. Cyrus Proctor
-#
+"""
+Description
+
+author W. Cyrus Proctor
+"""

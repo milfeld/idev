@@ -1,15 +1,16 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
-## 
-# @package idev
-# @authors Kent Milfeld, Jason Allison, W. Cyrus Proctor
-# @note TACC
-# @copyright License
-#
-# @ brief Creates job, waits for run state, and ssh's to master node
-# 
-# Basic shell:  ssh to a node, exit and kill job.  kfm 4/8/2015
-# Detailed description
-#
+"""
+package idev
+authors Kent Milfeld, Jason Allison, W. Cyrus Proctor
+note TACC
+copyright License
+
+brief Creates job, waits for run state, and ssh's to master node
+
+Basic shell:  ssh to a node, exit and kill job.  kfm 4/8/2015
+Detailed description
+
+"""
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -29,23 +30,24 @@ import parse
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
-## Submit a job
-#
-# Detailed description
-# @param job_script describe variable job_script
-#
-# Returns ?
-#
 def submit_job(job_script):
+  """
+   Submit a job
+  
+  Detailed description
+  job_script describe variable job_script
+  
+  Returns ?
+  """
   print "sub_job"
 
 # http://www.python-course.eu/forking.php
 # https://docs.python.org/2/library/sys.html
 
-## ssh to node
-#
-#
 def ssh():
+  """
+   ssh to node
+  """
   try:
   
     print "SSHing to a node"
@@ -59,12 +61,12 @@ def ssh():
 
 
 
-## Top-level call
-#
-# Detailed description
-#
-#
 def idev():
+  """
+  Top-level call
+  
+  Detailed description
+  """
   # Parse command-line arguments
   parse.Parse()
 

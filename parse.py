@@ -1,14 +1,14 @@
 #!/opt/apps/intel13/python/2.7.9/bin/python
+"""
+hello world 
+file parse.py
+author W. Cyrus Proctor
+date 2015-04-15
+note TACC
+copyright License
 
-## hello world 
-# @file parse.py
-# @author W. Cyrus Proctor
-# @date 2015-04-15
-# @note TACC
-# @copyright License
-#
-#
-# Detailed description
+Detailed description
+"""
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
@@ -31,14 +31,18 @@ from decorators import timing, echo
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
-## my parse class
-#
-# @param test_cml_args for unit testing Parse class
-#
 class Parse():
+  """ 
+  my parse class
+  test_cml_args for unit testing Parse class
+  """
 
+  
   def __init__(self, 
                test_cml_args=None):
+    """
+    parse class constructor
+    """
     # Initialize parser with prologue and epilogue 
     self.init_parser()
     # Add command-line argument definitions to parse
@@ -48,17 +52,18 @@ class Parse():
   
   #----------------------------------------------------------------------------
 
-  ## Convert time in (int) minutes to time in "hh:mm:ss" (str) format
-  #
-  #  Given integer min_time, return a formatted string in 
-  #  hours, minutes, and seconds separated by colons.
-  #
-  #  @param min_time integer containing time, in minutes to convert
-  #
-  #  Returns a string hms_time formatted as "hh:mm:ss"
-  #
   def min2hms(self, 
               min_time):
+    """
+    Convert time in (int) minutes to time in "hh:mm:ss" (str) format
+    
+    Given integer min_time, return a formatted string in 
+    hours, minutes, and seconds separated by colons.
+    
+    min_time integer containing time, in minutes to convert
+    
+    Returns a string hms_time formatted as "hh:mm:ss"
+    """
     s = 0
     h, m = divmod(min_time, 60)
     hms_time = "%02d:%02d:%02d" % (h, m, s)
@@ -66,16 +71,18 @@ class Parse():
   
   #----------------------------------------------------------------------------
   
-  ## Define all known run-time command-line arguments
-  #
-  # Given an argparse.ArgumentParser instance, add required, optional and 
-  # mutually exclusive command-line arguments and return.
-  #
-  #
-  # Returns the instance with the arguments added.
   @timing
   @echo
   def add_arguments(self):
+    """  
+    Define all known run-time command-line arguments
+    
+    Given an argparse.ArgumentParser instance, add required, optional and 
+    mutually exclusive command-line arguments and return.
+    
+    
+    Returns the instance with the arguments added.
+    """
     
     # Will parse out of .idevrc
     idevrc_project    = "A-ccsc"                      # TACC internal
@@ -184,21 +191,23 @@ class Parse():
 
   #----------------------------------------------------------------------------
   
-  ## Parse out command-line options for use with pidev
-  #
-  # Detailed description
-  #
-  # @param test_cml_args Used to send a list of command-line arguments for unit testing
-  #
-  # @todo Print TACC system defaults 
-  # @todo Print User's idevrc defaults
-  # @todo Set -N and and -n correctly if not specified
-  #
   @timing
   @echo
   def parse(self, test_cml_args=None):
+    """
+    Parse out command-line options for use with pidev
+    
+    Detailed description
+    
+    test_cml_args Used to send a list of command-line arguments for unit testing
+    
+    todo Print TACC system defaults 
+    todo Print User's idevrc defaults
+    todo Set -N and and -n correctly if not specified
+    
   
-    # Parse all known args and bundle the rest into extra
+    Parse all known args and bundle the rest into extra
+    """
     cml_args, cml_unknown_args = self.parser.parse_known_args(test_cml_args)
   
     if config.debug:
@@ -266,36 +275,36 @@ class Parse():
       self.idev_tasks = it.list_to_int(cml_args.idev_tasks)
 
   #----------------------------------------------------------------------------
-  ## -N is set; -n is not set
   def check_nodes_only(self, cml_args):
+    """ -N is set; -n is not set"""
     return cml_args.idev_nodes is not None and cml_args.idev_tasks is None
   
   #----------------------------------------------------------------------------
-  ## -n is set; -N is not set
   def check_tasks_only(self, cml_args):
+    """ -n is set; -N is not set"""
     return cml_args.idev_tasks is not None and cml_args.idev_nodes is None
   
   #----------------------------------------------------------------------------
-  ## Neither -N or -n are set
   def check_no_nodes_no_tasks(self, cml_args):
+    """ Neither -N or -n are set"""
     return cml_args.idev_tasks is None and cml_args.idev_nodes is None
   
   #----------------------------------------------------------------------------
-  ## Both -N and -n are set
   def check_nodes_and_tasks(self, cml_args):
+    """ Both -N and -n are set"""
     return cml_args.idev_tasks is not None and cml_args.idev_nodes is not None
      
 
-## custom exception
-#
-#
 class IdevArgumentError(Exception):
-   ## exception constructor
-   def __init__(self, message, errors=None):
-
+  """ 
+  custom exception
+  """
+  def __init__(self, message, errors=None):
+    """ exception constructor"""
+    
     # Call the base class constructor with the parameters it needs
     super(IdevArgumentError, self).__init__(message)
-
+    
     # Now for your custom code...
     self.errors = errors
 
@@ -303,24 +312,28 @@ class IdevArgumentError(Exception):
 
 
 #------------------------------------------------------------------------------
-## My appliance
-#
-# Detailed description
 class Appliance:
-  ## Constructor
-  #
-  # Detailed description
-  # @param app_name
-  # @param cores_per_node
-  # @param cores_per_socket
-  # @param num_sockets
-  #
-  # @todo Hold appliance-specific information -- core counts, etc.
+  """
+  My appliance
+  
+  Detailed description
+  """
   def __init__(self                      ,
                app_name            = None,
                cores_per_node      = None,
                cores_per_socket    = None,
                num_sockets         = None):
+    """
+     Constructor
+    
+    Detailed description
+    app_name
+    cores_per_node
+    cores_per_socket
+    num_sockets
+    
+    todo Hold appliance-specific information -- core counts, etc.
+    """
     self.app_name         = app_name
     self.cores_per_node   = cores_per_node
     self.cores_per_socket = cores_per_socket
@@ -328,35 +341,37 @@ class Appliance:
 
 #------------------------------------------------------------------------------
 
-## My Queue
-#
-#
 class Queue(Appliance):
-  ## queue constructor
-  #
-  #
+  """
+  My Queue
+  """
   def __init__(self                      ,
                queue_name          = None,
                appliance           = None):
+    """
+    queue constructor
+    """
     self.queue_name = queue_name
     self.appliance = appliance or super(Queue, self).__init__()
 
 #------------------------------------------------------------------------------
 
 
-## My idevrc data class
-#
-# Detailed description
-# 
 class Idevrc(Queue):
-  ## Idevrc constructor
-  #
-  # @todo Hold idevrc default information
-  #
+  """
+  My idevrc data class
+  
+  Detailed description
+  """
   def __init__(self                      , 
                project             = None,
                min_time            = None, 
                queue               = None):
+    """
+    Idevrc constructor
+    
+    todo Hold idevrc default information
+    """
     self.project  = project
     self.min_time = min_time
     self.hms_time = min2hms(min_time)
@@ -364,16 +379,18 @@ class Idevrc(Queue):
 
 
 #------------------------------------------------------------------------------
-## Positive Integer Checking
-#
-# description _SingleLeadingUnderscore for weak "internal use" indicator
-#
 class _PositiveIntegerAction(argparse.Action):
+  """
+  Positive Integer Checking
+  
+  description _SingleLeadingUnderscore for weak "internal use" indicator
+  """
 
-  ## brief stuff
-  # Details
-  #
   def __call__(self, parser, namespace, values, option_string=None):
+    """
+    brief stuff
+    Details
+    """
    
     for value in values: 
       if not isinstance(value, int):
@@ -402,22 +419,27 @@ class _PositiveIntegerAction(argparse.Action):
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 
-##
-#
-#
 class TestParse(unittest.TestCase):
+  """
+  class for unit testing the parse class 
+  """
 
 
   def test_no_cml_args(self):
+    """ pass no command-line args to parse"""
     cml_args = []
     obj = Parse(test_cml_args=cml_args)
     self.assertTrue(obj)
+
   def test_debug(self):
+    """ pass debug flas only to parse"""
     cml_args = ["--debug"]
     obj = Parse(test_cml_args=cml_args)
     self.assertEqual(obj.idev_debug, True)
     config.debug = False # Reset global variable
+
   def test_valid_num_tasks(self):
+    """ pass a range of valid postive integers with -n option"""
     num_task_list = [1,2,3,4,5,6,7,8,9,10,20,30,40,50,\
                      100,500,1000,10000,100000,1000000]
     for task_num in num_task_list:
@@ -443,49 +465,3 @@ if __name__ == "__main__":
   #unittest.main()
   #parse()
 
-
-
-
-
-
-
-
-
-
-
-#import nose.tools as nt
-#
-#
-#class TestA(object):
-#  @classmethod
-#  def setup_class(klass):
-#    """This method is run once for each class before any tests are run"""
-#
-#  @classmethod
-#  def teardown_class(klass):
-#    """This method is run once for each class _after_ all tests are run"""
-#
-#  def setUp(self):
-#    """This method is run once before _each_ test method is executed"""
-#
-#  def teardown(self):
-#    """This method is run once after _each_ test method is executed"""
-#
-#  def test_init(self):
-#    a = A()
-#    nt.assert_equal(a.value, "Some Value")
-#    nt.assert_not_equal(a.value, "Incorrect Value")
-#
-#  def test_return_true(self):
-#   a = A()
-#   nt.assert_equal(a.return_true(), True)
-#   nt.assert_not_equal(a.return_true(), False)
-#
-#  def test_raise_exc(self):
-#    a = A()
-#    nt.assert_raises(KeyError, a.raise_exc, "A value")
-#
-##  @raises(KeyError)
-##  def test_raise_exc_with_decorator(self):
-##    a = A()
-##    a.raise_exc("A message")
