@@ -65,6 +65,21 @@ class Parse():
     return hms_time
   
   #----------------------------------------------------------------------------
+ 
+  ## idev command-line arguments usage string
+  #
+  # 
+  def usage_msg(self):
+     return """%(prog)s [-h] 
+             [--debug] 
+             [--version] 
+             [-A project_name]
+             [-r [reservation_name | none]] 
+             [-n num_tasks | -N num_nodes -n num_tasks]
+             [-p queue_name | -q queue_name] 
+             [-m minutes | -t hms_time]
+            """
+  #----------------------------------------------------------------------------
   
   ## Define all known run-time command-line arguments
   #
@@ -73,24 +88,30 @@ class Parse():
   #
   #
   # Returns the instance with the arguments added.
+  #
+  # @todo search for active reservations with -r
   @timing
   @echo
   def add_arguments(self):
     
     # Will parse out of .idevrc
-    idevrc_project    = "A-ccsc"                      # TACC internal
-    idevrc_min_time   = 30                            # (minutes)
-    idevrc_hms_time   = self.min2hms(idevrc_min_time) # hh:mm:ss
-    idevrc_queue      = "development"                 # TACC internal
+    idevrc_project     = "A-ccsc"                      # TACC internal
+    idevrc_reservation = "MYRES"                       # TACC internal
+    idevrc_min_time    = 30                            # (minutes)
+    idevrc_hms_time    = self.min2hms(idevrc_min_time) # hh:mm:ss
+    idevrc_queue       = "development"                 # TACC internal
+    # Will need to search for active reservations
+    const_reservation   = "MYACTIVERES"
   
     # Defaults
-    default_debug_mode = False
-    default_account    = idevrc_project
-    default_min_time   = idevrc_min_time
-    default_hms_time   = idevrc_hms_time
-    default_queue      = idevrc_queue
-    default_num_tasks  = 16 # System dependent
-    default_num_nodes  = 1
+    default_debug_mode  = False
+    default_account     = idevrc_project
+    default_reservation = idevrc_reservation
+    default_min_time    = idevrc_min_time
+    default_hms_time    = idevrc_hms_time
+    default_queue       = idevrc_queue
+    default_num_tasks   = 16 # System dependent
+    default_num_nodes   = 1
     
     self.parser.add_argument('--debug',
                              required = False,
@@ -111,6 +132,17 @@ class Parse():
                              metavar  = ('project_name'), 
                              help     = "project allocation name for\
                                          SU accounting")
+    self.parser.add_argument('-r', 
+                             nargs    = '?', 
+                             type     = str, 
+                             required = False, 
+                             action   = 'store', 
+                             dest     = 'idev_reservation', 
+                             default  = default_reservation,
+                             const    = const_reservation,
+                             metavar  = ('reserv_name'), 
+                             help     = "explicit reservation name,\
+                                         none, or blank")
     # -N may not be present without -n; 
     # Leave default as None for postprocessing
     self.parser.add_argument('-n', 
@@ -226,6 +258,9 @@ class Parse():
     
   #----------------------------------------------------------------------------
 
+  ## Initialize idev parser
+  #
+  #
   def init_parser(self):
     # idev introductory help message
     idev_prologue = \
@@ -239,8 +274,9 @@ class Parse():
     idev_epilog = """TACC4LIFE"""
     # Create instance of argument parser
     self.parser = argparse.ArgumentParser(prog=config.name,
-                                     description=idev_prologue,
-                                     epilog=idev_epilog)
+                                          usage=self.usage_msg(),
+                                          description=idev_prologue,
+                                          epilog=idev_epilog)
 
   #----------------------------------------------------------------------------
   def assign_nodes_and_tasks(self, cml_args):
