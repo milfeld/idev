@@ -29,7 +29,7 @@ def is_int(s):
 # @todo  Write our own version (don't like Capital Letter default: [y/N] )
 #        original function definition: def query_yes_no(question, default="yes"):
 
-def ask_yorn_question(question, default="yes"):
+def ask_yesno_question(question, default="yes"):
     """Ask a yes/no question via raw_input() and return their answer.
 
     "question" is a string that is presented to the user.
@@ -67,19 +67,21 @@ def ask_yorn_question(question, default="yes"):
 
 
 
-## Ask to select question via raw_input() and return their answer.
+## Ask to select reservation via raw_input() and return their answer.
 #
-# @parm res_list --  a list of reservations of the user
-# @parm  default --  index of default reservation, -1 == none
+# @param res_list --  a list of reservations of the user
+# @param  default --  index of default reservation, None == none
 #
 # "default" is the selection if the user just types <Enter>.
 
-def select_reservation(res_list, default=-1):
+def select_reservation(res_list, default=None):
 
-  if default == -1:
-    prompt = " Enter # [no default] : "
+  if default is None:
+    prompt       = " Enter # [no default] : "
+    respond_with = " Please respond with a number (#) or abort (^C): "
   else:
     prompt = " Enter # [default %d] : " % (default + 1)
+    respond_with = " Please respond with a number (#), return (default) or abort (^C): "
 
   print "Select the number of the reservation item:"
 
@@ -97,7 +99,8 @@ def select_reservation(res_list, default=-1):
 
     #   Not a number and not ""  -- handle no default case in else below
     if not is_int(choice) and not choice == "" :
-      print "Please respond with a number (#) or return (default): "
+
+      print respond_with
 
     #   integer response
     if is_int(choice):
@@ -111,9 +114,9 @@ def select_reservation(res_list, default=-1):
     else:
       if choice == "":
 
-        if default == -1:
-          print "You must respond with a number (#) only, or ctrl C to abort."
-        elif default < len(res_list) and int_choice >= 0:
+        if default is None:
+          print "You must respond with a number (#) only, or abort (^C)."
+        elif default < len(res_list) and default >= 0:
           return default
 
 #-------------------------------------------------------------------------------
@@ -139,7 +142,7 @@ def list_reservations(res_list):
 
 ## Tests
 #    select_reservation
-#    ask_yorn_question
+#    ask_yesno_question
 #
 if __name__ == "__main__":
 
@@ -156,11 +159,17 @@ if __name__ == "__main__":
     user_res.append(x1)
 
     #      Check reservation selection.
+    print " Reservation Select----------------------------\n"
+    selected_no = select_reservation(user_res, None)
+    print "selected number is: ",selected_no + 1
+
+    print " Reservation Select----------------------------\n"
+
     selected_no = select_reservation(user_res, 1)
     print "selected number is: ",selected_no + 1
 
-    print " ----------------------------\n"
+    print " Yes or No Question----------------------------\n"
 
     #      Check Yes or No question
-    yorn = ask_yorn_question("Are you OK","no")
+    yorn = ask_yesno_question("Are you OK","no")
     print "Yes or No response: %s ", yorn
