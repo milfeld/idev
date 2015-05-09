@@ -1,0 +1,10 @@
+2015-05-09  Wrangler Request
+
+    If a specific queue is requested, and a reservation doesn't use that queue,
+    just ADVISE the user that he has an active reservation.  (may give a few seconds delay)
+
+    If the person asks for a specific queue and a reservation uses that queue.
+
+    ?  Assume if the person requests a queue which is also in a reservation, do the usual ask.
+
+    If a reservation is used, use the project of the reservation.
