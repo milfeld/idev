@@ -35,6 +35,7 @@ from decorators import timing, echo
 ## my parse class
 #
 # @param test_cml_args for unit testing Parse class
+# @todo incorporate the System, Queue, and Appliance classes into Parse
 #
 class Parse(object):
 

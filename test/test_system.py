@@ -32,7 +32,7 @@ import system
 #------------------------------------------------------------------------------
 
 ##
-#
+# @todo System unit testing is still incomplete. Add more coverage.
 #
 class TestSystem(unittest.TestCase):
 

@@ -31,6 +31,7 @@ import idev_exceptions
 # Hold specific queue details which are system dependent.
 # A queue must be defined in the Queue._queue_options dictionary
 # with an appropriate initialization routine.
+# @todo Add an attribute to store what type of Appliance is used in a specfic Queue instance.
 #
 class Queue(object):
 
