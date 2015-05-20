@@ -23,6 +23,7 @@ import unittest
 
 # Local Modules
 import config
+import idev_exceptions
 import iterable as it
 from decorators import timing, echo
 
@@ -283,8 +284,8 @@ class Parse(object):
 
     if self.check_nodes_only(cml_args):
       err_msg = "-N set to {0}; -n NOT set. -n must be set with option -N."\
-                .format(self.idev_nodes)
-      raise IdevArgumentError(err_msg)
+                .format(cml_args.idev_nodes)
+      raise idev_exceptions.IdevArgumentError(err_msg)
 
     if self.check_tasks_only(cml_args):
       self.idev_tasks = it.list_to_int(cml_args.idev_tasks)
@@ -321,89 +322,6 @@ class Parse(object):
   def check_nodes_and_tasks(self, cml_args):
     return cml_args.idev_tasks is not None and cml_args.idev_nodes is not None
      
-
-## custom exception
-#
-#
-class IdevArgumentError(Exception):
-   ## exception constructor
-   def __init__(self, message, errors=None):
-
-    # Call the base class constructor with the parameters it needs
-    super(IdevArgumentError, self).__init__(message)
-
-    # Now for your custom code...
-    self.errors = errors
-
-
-
-
-#------------------------------------------------------------------------------
-## My appliance
-#
-# Detailed description
-class Appliance(object):
-  ## Constructor
-  #
-  # Detailed description
-  # @param app_name
-  # @param cores_per_node
-  # @param cores_per_socket
-  # @param num_sockets
-  #
-  # @todo Hold appliance-specific information -- core counts, etc.
-  def __init__(self                      ,
-               app_name            = None,
-               cores_per_node      = None,
-               cores_per_socket    = None,
-               num_sockets         = None):
-    self.app_name         = app_name
-    self.cores_per_node   = cores_per_node
-    self.cores_per_socket = cores_per_socket
-    self.num_sockets      = num_sockets
-
-#------------------------------------------------------------------------------
-
-## My Queue
-#
-#
-class Queue(Appliance):
-  ## queue constructor
-  #
-  #
-  def __init__(self                      ,
-               queue_name          = None,
-               appliance           = None,
-               max_runtime         = None,
-               max_nodes           = None,
-               max_procs           = None):
-    self.queue_name  = queue_name
-    self.appliance   = appliance or super(Queue, self).__init__()
-    self.max_runtime = max_runtime
-    self.max_nodes   = max_nodes
-    self.max_procs   = max_procs
-
-#------------------------------------------------------------------------------
-
-
-## My idevrc data class
-#
-# Detailed description
-# 
-class Idevrc(Queue):
-  ## Idevrc constructor
-  #
-  # @todo Hold idevrc default information
-  #
-  def __init__(self                      , 
-               project             = None,
-               min_time            = None, 
-               queue               = None):
-    self.project  = project
-    self.min_time = min_time
-    self.hms_time = min2hms(min_time)
-    self.queue    = queue or super(Idevrc, self).__init__()
-
 
 #------------------------------------------------------------------------------
 ## Positive Integer Checking

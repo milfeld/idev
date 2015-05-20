@@ -69,11 +69,11 @@ def ask_yesno_question(question, default="yes"):
 
 ## Ask to select reservation via raw_input() and return their answer.
 #
-# @param res_list --  a list of reservations of the user
-# @param  default --  index of default reservation, None == none
+# @param res_list A list of reservations of the user
+# @param default Index of default reservation, None == none
 #
 # "default" is the selection if the user just types <Enter>.
-
+#
 def select_reservation(res_list, default=None):
 
   if default is None:
