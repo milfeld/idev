@@ -52,10 +52,12 @@ class ClassAttributeError(Exception):
   #
   def __init__(self, message, keys=None):
 
+    self.message = message
+    self.keys    = keys
     # Add custom text to print out available key options
-    message += "\n\nValid keys include:\n"
-    for key in keys:
-      message += str(key) + "\n"
+    self.message += "\n\nValid keys include:\n"
+    for key in self.keys:
+      self.message += str(key) + "\n"
 
     # Call the base class constructor with the parameters it needs
-    super(ClassAttributeError, self).__init__(message)
+    super(ClassAttributeError, self).__init__(self.message)

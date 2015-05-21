@@ -129,6 +129,6 @@ class System(object):
     
 
 
-#a = System(name="Stampede")
+#a = System(name="wrong")
 #a.display()
 #a.queue["normal"].display()
