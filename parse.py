@@ -15,6 +15,7 @@
 #------------------------------------------------------------------------------
 
 # System Modules
+from __future__ import print_function
 import argparse
 import datetime
 import unittest
@@ -254,7 +255,7 @@ class Parse(object):
   #----------------------------------------------------------------------------
   def assign_debug_mode(self, cml_args):
     if cml_args.idev_debug:
-      print("Debug mode activated via command-line. Ignoring config.debug")
+      #print("Debug mode activated via command-line. Ignoring config.debug ... ", end="")
       self.idev_debug = cml_args.idev_debug
       config.debug    = cml_args.idev_debug
     

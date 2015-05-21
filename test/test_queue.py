@@ -34,7 +34,7 @@ import queue
 ##
 #
 #
-class TestAppliance(unittest.TestCase):
+class TestQueue(unittest.TestCase):
 
 
   ## Empty initializer should raise TypeError
