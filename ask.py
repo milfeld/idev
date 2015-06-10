@@ -1,21 +1,22 @@
 #!/usr/local/bin/python
 #!/opt/apps/intel13/python/2.7.9/bin/python
 
-
-## User Interaction and Query functions 
-# @file ask.py
-# @author Kent Milfeld
-# @date 2015-05-07
-# @note TACC
-# @copyright License
+## 
+#  User Interaction and Query functions 
+#  @file ask.py
+#  @author Kent Milfeld
+#  @date 2015-05-07
+#  @note TACC
+#  @copyright License
 #
 #
-# Detailed description
-# Stolen from http://code.activestate.com/recipes/577058/ by Kent Milfeld
-# @todo  Write our own version (don't like Capital Letter default: [y/N] )
+#  Detailed description
+#  ask_yesno_question stolen from http://code.activestate.com/recipes/577058
+#  @todo  Write our own version (don't like Capital Letter default: [y/N] )
 
 import sys
 
+#-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 
 def is_int(s):
@@ -25,9 +26,12 @@ def is_int(s):
   except ValueError:
     return False
 
-# Stolen from http://code.activestate.com/recipes/577058/ by Kent Milfeld
-# @todo  Write our own version (don't like Capital Letter default: [y/N] )
-#        original function definition: def query_yes_no(question, default="yes"):
+## 
+#  ask_yesno_question -- prompts user for yes/no answer
+#
+#  Stolen from http://code.activestate.com/recipes/577058/ by Kent Milfeld
+#  @todo  Write our own version (don't like Capital Letter default: [y/N] )
+#         original function definition: def query_yes_no(question, default="yes"):
 
 def ask_yesno_question(question, default="yes"):
     """Ask a yes/no question via raw_input() and return their answer.
@@ -67,21 +71,32 @@ def ask_yesno_question(question, default="yes"):
 
 
 
-## Ask to select reservation via raw_input() and return their answer.
+## 
+#  Ask to select reservation via raw_input() and return their answer.
 #
-# @param res_list A list of reservations of the user
-# @param default Index of default reservation, None == none
+#  @param res_list --  a list of reservations of the user
+#  @param  default --  index of default reservation 
+#                      None, user can only select a reservation, or abort
+#                      -1,   return means no reservation selected
+#                      
+#  @return         --  index of reservation or None (nothing selected)
 #
-# "default" is the selection if the user just types <Enter>.
+#  "default" is the selection if the user just types <Enter>.
 #
+
 def select_reservation(res_list, default=None):
 
   if default is None:
     prompt       = " Enter # [no default] : "
-    respond_with = " Please respond with a number (#) or abort (^C): "
+    respond_with = " Respond with a number (#) or abort (^C): "
+
+  elif default is -1:
+    prompt       = " Enter # [or return = don't use reseration] : "
+    respond_with = " Respond with a number (#), return [don't use a reservation] or abort (^C): "
+
   else:
-    prompt = " Enter # [default %d] : " % (default + 1)
-    respond_with = " Please respond with a number (#), return (default) or abort (^C): "
+    prompt = " Enter # [return = default %d] : " % (default + 1)
+    respond_with = " Respond with a number (#), return [default #] or abort (^C): "
 
   print "Select the number of the reservation item:"
 
@@ -116,14 +131,18 @@ def select_reservation(res_list, default=None):
 
         if default is None:
           print "You must respond with a number (#) only, or abort (^C)."
-        elif default < len(res_list) and default >= 0:
+        if default < len(res_list) and default >= 0:
           return default
+        if default is -1:
+          return None
 
 #-------------------------------------------------------------------------------
 
 
 
-## print reservations with a header (labels)
+## 
+#  list_revervations -- print reservations (from MyReservations class) 
+#                       with a header (labels)
 #
 
 def list_reservations(res_list):
@@ -140,7 +159,8 @@ def list_reservations(res_list):
 
 
 
-## Tests
+## 
+#  ask Unit Test
 #    select_reservation
 #    ask_yesno_question
 #
@@ -167,6 +187,11 @@ if __name__ == "__main__":
 
     selected_no = select_reservation(user_res, 1)
     print "selected number is: ",selected_no + 1
+
+    print " Reservation Select----------------------------\n"
+
+    selected_no = select_reservation(user_res, -1)
+    print "selected number is: ",selected_no
 
     print " Yes or No Question----------------------------\n"
 
