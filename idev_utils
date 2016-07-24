@@ -1,0 +1,635 @@
+#!/usr/bin/perl
+use File::Copy;
+use File::Basename;
+
+#   This perl utility work in conjunction with the idev command
+#   env_replication:  gathers master's enviroment in file to be sourced
+#                     /tmp/my_<shell>_env.### is the file name
+#                     will put in $HOME/.sge in future version
+#                     <shell> = [tcsh | bash]  on these shells are supported
+#   tcsh_login_insertion:
+#   bash_login_insertion:
+#                     Inserts commands in .login for idev
+#                     An ssh to a compute node triggers sourcing
+#                     the /tmp/my_<shell>_enf.### file.
+#   get_projects
+#                     Determine list of projects and returns to
+#                     list to idev for user selection as the default.
+#                     Unfortunately, if the user had only one project
+#                     the project is not returned. Uh!  So, use_default
+#                     is returned to idev, which then uses a blank
+#                     for "-A <project_id>" in the job scripts.
+#                     After all is done, the project name is placed
+#                     in $HOME/.idevrc for subsequent use, obviating
+#                     the need to call get_projects again
+#
+#                                                           1/1/2011
+#                     All rights reserved                 Kent Milfeld
+#
+#   Included routine to extract active reservations         9/4/2013
+#   get_reservation
+#
+#   Consolidated multiple perl scripts                      2/2/2011
+#   For single-project users, return "use_default"          2/24/2011
+#      Updated in get_projects
+#   login_insertion includes idev's full path in PATH       3/28/2011
+#   Included uninstall option tcsh/bash_login insertions    4/28/2011
+#   Will remove from .login/<bash_login> setup
+#   Will remove $HOME/.idevrc
+
+#   DISPLAY is not set.  Also, program no longer executes
+#   an unset/unsetenv on variables that are not set.       11/09/2011
+#   Now lets "ssh -Y ..." set display for tunneling.
+
+#   Create hash table for exceptions-- a bit cleaner.
+#   Set RUNNING_IDEV and NO_HOSTSORT for ibrun.
+#   (Means that task0 is no longer needed for TACC.)
+#   Remove "_" from environment (request by rtm).
+#   Set SHELL to login shell.  Thanks to Robert Mclay.     05/01/2012
+
+#   Included routine to return SLURM reservations          09/20/2013
+#   Remove SSH environment variables                       03/27/2015
+#   Allow user to list env vars to exclude in .idevrc      03/27/2015
+
+
+
+sub env_replication(@);
+sub tcsh_login_insertion(@);
+sub bash_login_insertion(@);
+sub get_projects($);
+sub get_reservation($);      #new
+
+$cmd =shift(@ARGV);
+$arg1=shift(@ARGV);
+$arg2=shift(@ARGV);
+$arg3=shift(@ARGV);
+
+if( $cmd eq "env_replication"      ){       env_replication($arg1,$arg2) ;}
+if( $cmd eq "tcsh_login_insertion" ){  tcsh_login_insertion($arg1,$arg2,$arg3) ;}
+if( $cmd eq "bash_login_insertion" ){  bash_login_insertion($arg1,$arg2,$arg3) ;}
+if( $cmd eq "get_projects"         ){          get_projects($arg1) ;}
+if( $cmd eq "get_reservation"      ){       get_reservation($arg1) ;} #new
+
+sub get_reservation($){
+
+# Gets ACTIVE reservation and queue of the active reservation for a USER.
+# Assumes that there will only be a single reservation.
+# Users should use "idev -r <reservation_id>" if they need a specific
+# reservation (when more than one is active for them).
+# To avoid using an active reservation users should use "idev -r none".
+# 
+   $status="none";
+   $total    = 0;
+   $tot_actv = 0;
+   $reservations="";
+   $USER=shift(@_);
+   open(RESERVATIONS,"scontrol show reservations | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+  #open(RESERVATIONS,"cat ./see_0a0i0n | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+   while(<RESERVATIONS>){
+     #if( $status eq "none" ){    #just find the first reservation
+         chomp;
+         if( /ReservationName=/ ){
+             $res_name =$_;           #do this the quick way
+             $res_name =~ s/ReservationName=//;
+             $res_name =~ s/ .*//;
+         }
+         if( /Nodes=/ ){
+             if( /PartitionName=/ ){
+                 $partition=$_;           #do this the quick way
+                 $partition =~ s/.*PartitionName=//;
+                 $partition =~ s/ .*//;
+             }
+             else {
+                 $partition = "(null)";
+             }
+         }
+
+         if( /Users=/ ){
+            if( /\b$USER\b/ ){
+               $total = $total + 1;
+               if( /\bState=ACTIVE\b/ ){
+                  $status="ACTIVE";
+                  $tot_actv = $tot_actv + 1;
+               }else{
+                  $status="INACTIVE";
+               }
+               $reservations = "$reservations $status $res_name $partition ";
+            }
+         }
+
+     #}
+   }
+#     Print out information:  "total tot_active status name queue" for each.
+   if( $status eq "none" ){
+      print "0 0 none none none";
+   }else {
+      print "$total $tot_actv $reservations";
+   }
+}
+
+
+
+sub env_replication(@){
+
+# Only tcsh(csh) and bash shells are supported-- 99.9 of our users.
+# Extract environment variables from "ENV".
+# Insert commands to be sourced in /tmp/my_<shell>_env.<idev_id>
+#    use export format for bash, and setenv format for tcsh
+
+   $my_shell = shift(@_);
+   $my_idev  = shift(@_);
+
+   my @env_exclude_list=qw(SHELL_STARTUP_DEBUG_T0 LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module() BASH_FUNC_module%%  BASH_FUNC_ml() BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
+#  my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module  BASH_FUNC_module%%  LOADEDMODULES BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
+   my %exclude;
+   foreach (@env_exclude_list) { $exclude{$_} = 1; }
+
+#                          Allow users to submit a list of env vars to exclude.
+  if( defined $ENV{"IDEV_RM_ENV"}){
+   @idev_rm_list = split(/ +/,$ENV{"IDEV_RM_ENV"});
+   foreach (@idev_rm_list) { $exclude{$_} = 1; }
+  }
+
+#  TACC Site variable.
+#          Lets ibrun know idev is running, and not to 
+#          sort host list.
+   %myenv=(RUNNING_IDEV=>1,NO_HOSTSORT=>1);
+
+##                     Changed for 9.2  my_<shell>... --> idev_<shell>...
+## $myenv_filename = "/tmp/idev_${my_shell}_env.${my_idev}";
+## $myenv_filename = "/tmp/idev_${USER}_${my_shell}_env.${my_idev}";
+   $myenv_filename = "/tmp/idev_$ENV{USER}_${my_shell}_env.${my_idev}";
+   if ( $my_shell eq "bash" ){
+     $CMD   = "export ";
+     $UNCMD = "unset ";
+     $EQIV  = "=";
+   }
+   else{
+     $CMD   = "setenv ";
+     $UNCMD = "unsetenv ";
+     $EQIV  = " ";
+   }
+
+     $len = 1;
+     $mykey="-";
+   foreach $key (keys(%ENV)){
+     $len = length($key);
+     if($lenmax < $len) {$lenmax=$len; $mykey=$key;}
+   }
+   #print "max=$lenmax for $mykey\n";
+
+
+   foreach $key (keys(%ENV)){
+      $value = $ENV{$key};
+      $value =~  s/\n|\r//g;
+
+      if( $exclude{$key} ){
+         $unmyenv{$key} = $value;
+        #printf("%-$lenmax.${lenmax}s: $unmyenv{$key}\n",$key);
+      }
+      else {
+        #printf("%-$lenmax.${lenmax}s: $ENV{$key}\n",$key);
+         $myenv{$key} = $value;
+        #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
+      }
+   }
+
+#  We avoid any problems users create with PERL5LIB, by
+#  running without it, but we put it back in their environment
+
+   if( $ENV{"idev_has_user_PERL5LIB"} eq "yes" ){
+      $myenv{"PERL5LIB"} = $ENV{"idev_user_PERL5LIB"};
+   }
+
+#  TACC FIX, set SHELL to login shell.
+#  OSGE sets shell to csh
+   $my_shell_fullpath=`which $my_shell`;
+   chomp($my_shell_fullpath);
+   $myenv{SHELL}=$my_shell_fullpath;
+
+   open(FILE,">$myenv_filename") or die;
+   print "File: $myenv_filename\n";
+   foreach $key (keys(%myenv)){
+      print FILE "$CMD $key${EQIV}\"$myenv{$key}\"\n";
+   }
+  #foreach $key (keys(%unmyenv)){
+  #   print FILE "$UNCMD $key\n";
+  #}
+   close(FILE);
+
+   #--------------------------------- alias
+
+   exit 0;
+   $myenv_filename = "/tmp/myalias.$$";
+   @obviate=qw( );
+
+
+   #open(FILE,"tcsh alias |") or die;
+   #
+   #while(<FILE>){
+   #  chomp;
+   #  print "$_\n";
+   #}
+
+     $len = 1;
+     $mykey="-";
+   foreach $key (keys(%ENV)){
+     $len = length($key);
+     if($lenmax < $len) {$lenmax=$len; $mykey=$key;}
+   }
+   print "max=$lenmax for $mykey\n";
+
+
+
+   # Check
+   open(FILE,">$myalias_filename") or die;
+   print "File: $myalias_filename\n";
+   foreach $key (keys(%myalias)){
+      print FILE "setalias $key \"$myalias{$key}\"\n";
+   }
+   foreach $key (keys(%unmyalias)){
+      print FILE "unsetalias $key\n";
+   }
+   close(FILE);
+
+}   #end of login_insert subroutine
+
+#-------------------------------------------------------------
+
+
+# Prototype the perl function call -- only allow one argument ($SYSTEM).
+sub tcsh_login_insertion(@){
+   $SYSTEM=shift(@_);
+   $IDEV_DIR=shift(@_);
+   $IDEV_RM=shift(@_);
+
+   #           Include command in .login if needed.  cmds_add (1=added,0=found)
+   ($status, $HPCUT_VER)=csh_shell_setup($SYSTEM,$IDEV_DIR,$IDEV_RM);
+   if($status eq "Command Insert rejected."){
+      print "Status:$status HPCUT_VER:$HPCUT_VER\n";
+      exit(1);
+   }
+}
+
+sub csh_shell_setup (@) {
+# csh_shell_setup
+# Inserts HPCUT commands into .login file for C shell, if not present
+# Prompts user for permission if commands not found.
+# #IDEV BEGIN is the sentinal that indicates commands are present
+# Version Number detected for automatic updates.
+
+# HPCUT LOGIN COMMANDS   Commands required in .login for C shell.
+# $, " and ' must be protected with backslashes.
+
+   my($system,$idev_dir) = @_;
+   $HOME=$ENV{HOME};
+   $LOGIN_FILE  = "$HOME/.login";
+   $IDEVRC_FILE = "$HOME/.idevrc";
+#  $LOGIN_FILE = "$HOME/.login_test";
+
+#                      If idev in /usr/bin, comment out path insert query
+#                      /usr/bin should be in path
+#                      query used when idev is not installed in /usr/bin
+#                      Doing with comments-- add/noadd would be complicated
+#                      by double substitutions-- may do this better later.
+   $line_do_nodo=" ";
+   if( $idev_dir eq "/user/bin" ){$line_do_nodo="#";}
+
+   $LOGIN_BEGIN   = '#IDEV BEGIN';
+   $LOGIN_END     = '#IDEV END';
+   $LOGIN_CMDS  =
+   "#IDEV BEGIN (This line used to detect idev setup-- do not remove.) \n" .
+   "  \n" .
+   "$line_do_nodo echo \$PATH | egrep ${idev_dir}\'(\$|:)\' >& /dev/null \n" .
+   "$line_do_nodo if ( \$status ) then \n" .
+   "$line_do_nodo   set path=($idev_dir \${path}) \n" .
+   "$line_do_nodo endif \n" .
+   "  \n" .
+   " setenv  idev_hostname `hostname` \n" .
+   " setenv  IDEV_SETUP_VER 0.91      \n" .
+   "                              #if on compute node \n" .
+   " setenv idev_ip `echo \$idev_hostname | sed \"s/.$system.*//\"` \n" .
+   " if (  \$idev_ip =~ i[0-9][0-9][0-9]-[0-9][0-9][0-9] || \\\n" .
+   "       \$idev_ip =~ c[0-9][0-9][0-9]-[0-9][0-9][0-9] || \\\n" .
+   "       \$idev_ip =~ vis[0-9] || \$idev_ip =~ visbig ) then \n\n" .
+   "    # ls returns \"0\" if true, and !0 if false for if statement \n" .
+   "    ls /tmp/idev_tcsh_env.[0-9]* >& /dev/null \n" .
+   "    setenv idev_env_status \$status \n\n" .
+   "    if( ! \$idev_env_status  ) then \n" .
+   "      source /tmp/idev_tcsh_env*  #source env file \n" .
+   "      cd \$IDEV_PWD           #go to submit dir. \n" .
+   "    endif \n\n" .
+   " endif \n" .
+   " unsetenv idev_hostname idev_ip idev_env_status \n" .
+   "#IDEV END   (This line used to detect idev setup-- do not remove.) \n";
+
+
+   $LOGIN_INSERT  =
+   "#IDEV BEGIN (This line used to detect idev setup-- do not remove.) \n" .
+   "  if (-r    \$HOME/.idev_tcsh) then \n" .
+   "     source \$HOME/.idev_tcsh \n" .
+   "  endif \n" .
+   "#IDEV END   (This line used to detect idev setup-- do not remove.) \n";
+
+#  " echo \$PATH | egrep $USER\'/bin(\$|:)\' >& /dev/null \n" .
+#  " if ( ! \$status ) then \n" .
+#  "   set path=(\${path} \$HOME/bin)           \n" .
+
+   $LOGIN_VERSION = 'setenv\s+idev_ver\s+(\d+\.\d+)';
+
+   $found_hpcut_cmds = 0;
+    if(-e $LOGIN_FILE) {
+     open ( FILE,"<$LOGIN_FILE") or die "ERROR:  Cannot open $LOGIN_FILE";
+     while(<FILE>) { if(/^$LOGIN_BEGIN/) { $found_hpcut_cmds = 1;}
+                     if(/$LOGIN_VERSION/) { $HPCUT_VER = $1;}       }
+    }
+    else{  die "Hmm, you don't have a $LOGIN_FILE file, I'm bailing\n"; }
+   close(FILE);
+
+   $status = "Found idev cmds in .login file.";
+   if( $found_hpcut_cmds == 0 && $IDEV_RM ne "uninstall"){
+          print "Idev needs to insert a few startup commands in your $LOGIN_FILE file.\n";
+          print "(To see the commands, set the IDEV_LOGIN_CMS to yes, and rerun idev.)\n";
+          print "May I insert the commands? (yes,no, default is yes) >";
+          $answer=<>;
+
+          $found_yes=0;
+          if( $answer =~ /^y[es]*/i ){ $found_yes=1; }
+          if( $answer eq "\n"       ){ $found_yes=1; }
+          if( !$found_yes ){
+             print "Your $LOGIN_FILE file will not be touched.  Bailing out.\n";
+             return "Command Insert rejected.", "0";}
+          print "\nAppending these commands to your $LOGIN_FILE file:\n\n";
+          print "$LOGIN_INSERT";
+          print "-------------------------------------------\n\n";
+
+          open ( FILE,">>$LOGIN_FILE") or die "ERROR:  Cannot open $LOGIN_FILE";
+           print FILE "$LOGIN_INSERT";
+          close( FILE);
+
+          open ( FILE,">$HOME/.idev_tcsh") or die "ERROR:  Cannot open $HOME/.idev_tcsh";
+           print FILE "$LOGIN_CMDS";
+          close( FILE);
+
+          $status="Cmds added.";
+          $HPCUT_VER="latest";
+   }
+#                                                    Remove lines between #IDEV BEGIN
+#                                                    and #IDEV END in login
+#                                                    Copy old version to .login.$$
+#                                                    Make backup in /tmp--super safe
+   if($IDEV_RM eq "uninstall" ){
+          copy($LOGIN_FILE, "/tmp/.login.$$") or die ".login backup to /tmp failed";
+          move($LOGIN_FILE,      "${LOGIN_FILE}.$$");
+          open ( FILE1, ">$LOGIN_FILE") or die "ERROR:  Cannot open $LOGIN_FILE." .
+                                        "MOVE ${LOGIN_FILE}.$$ back to ${LOGIN_FILE}";
+          open ( FILE2, "${LOGIN_FILE}.$$") or die "ERROR: Cannot open ${LOGIN_FILE}.$$.";
+          while(<FILE2>){
+
+             if( /^#IDEV BEGIN/ ){
+                while(<FILE2>){
+                   if( /^#IDEV END/ ){
+                   $_=<FILE2>; last; }
+                }
+             }
+
+             print FILE1
+
+          }
+          close(FILE1);
+          close(FILE2);
+          unlink($IDEVRC_FILE);
+          unlink("$HOME/.idev_tcsh");
+          unlink("$HOME/.idevrc");
+   }
+
+   return $status, $HPCUT_VER;
+}
+
+#------------------------------------------------------
+
+#
+#set -x
+#  Interactive DEVelement (idev) for batch jobs
+#  Inserts login commands needed by Idev.
+#                                  Kent Milfeld        1/22/2011
+#                                  all rights reserved
+#  Now inserts startup cmds in startup file user uses.  2/8/2011
+#
+# Prototype the perl function call -- only allow one argument ($SYSTEM).
+
+#  At login bash executes /etc/profile, and then:
+#  bash inspects  ~/.bash_profile, ~/.bash_login, and ~/.profile in order,
+#  It executes only one: the first one that exists and is readable.
+#  Idev uses the same order and state to determine where to put login info.
+#  If none exit, we will use ~/.bash_profile
+
+
+sub bash_login_insertion(@){
+   $SYSTEM=shift(@_);
+   $IDEV_DIR=shift(@_);
+   $IDEV_RM=shift(@_);
+
+   #           Include command in .login if needed.  cmds_add (1=added,0=found)
+   ($status, $HPCUT_VER)=sh_shell_setup($SYSTEM,$IDEV_DIR,$IDEV_RM);
+   if($status eq "Command Insert rejected."){
+      print "Status:$status HPCUT_VER:$HPCUT_VER\n";
+      exit(1);
+   }
+}
+
+sub sh_shell_setup (@) {
+# bash_shell_setup
+# Inserts HPCUT commands into .bash_login file for Bash shell, if not present
+#         HPCUT commands into      .login file for C      shell, if not present
+# Prompts user for permission if commands not found.
+# #IDEV BEGIN is the sentinal that indicates commands are present
+# Version Number detected for automatic updates.
+
+# HPCUT LOGIN COMMANDS   Commands required in .bash_login for Bash shell.
+# $, " and ' must be protected with backslashes.
+
+   my($system,$idev_dir,$idev_rm)   = @_;
+   $HOME=$ENV{HOME};
+#                                  Escape / for bash [[ ]] test.
+
+#                      If idev in /usr/bin, comment out path insert query
+#                      /usr/bin should be in path
+#                      query used when idev is not installed in /usr/bin
+#                      Doing with comments-- add/noadd would be complicated
+#                      by double substitutions-- may do this better later.
+   $line_do_nodo=" ";
+   if( $idev_dir eq "/user/bin" ){$line_do_nodo="#";}
+
+   $LOGIN_BEGIN   = '#IDEV BEGIN';
+   $LOGIN_CMDS  =
+   "#IDEV BEGIN (This line used to detect idev setup-- do not remove.) \n" .
+   "    \n" .
+   "$line_do_nodo if [[ !  \$PATH =~ ${idev_dir}(\$|:) ]]; then \n" .
+   "$line_do_nodo   export PATH=$idev_dir:\${PATH} \n" .
+   "$line_do_nodo fi \n" .
+   "    \n" .
+   " export idev_hostname=`hostname` \n" .
+   " export IDEV_SETUP_VER=0.91      \n" .
+   "                                  #if on compute node \n" .
+   " export idev_ip=`echo \$idev_hostname | sed \"s/.$SYSTEM.*//\"` \n" .
+   " if [[  \$idev_ip =~ i[0-9][0-9][0-9]-[0-9][0-9][0-9] || \\\n" .
+   "        \$idev_ip =~ c[0-9][0-9][0-9]-[0-9][0-9][0-9] || \\\n" .
+   "        \$idev_ip =~ vis[0-9] || \$idev_ip =~ visbig ]]; then \n" .
+   " \n" .
+   "    # ls returns \"0\" if true, and !0 if false for if statement \n" .
+   "    ls /tmp/idev_bash_env.[0-9]* &> /dev/null \n" .
+   "    export idev_env_status=\$? \n" .
+   " \n" .
+   "    if [ \$idev_env_status -eq 0 ]; then \n" .
+   "      .  /tmp/idev_bash_env*            #source env file   \n" .
+   "      cd \$IDEV_PWD               #go to submit dir.  \n" .
+   "    fi \n" .
+   "       \n" .
+   " fi    \n" .
+   " unset idev_hostname idev_ip idev_env_status \n" .
+   "#IDEV END   (This line used to detect idev setup-- do not remove.) \n";
+
+   $LOGIN_INSERT  =
+   "#IDEV BEGIN (This line used to detect idev setup-- do not remove.) \n" .
+   "   if [ -r   \$HOME/.idev_bash ] ; then \n" .
+   "      source \$HOME/.idev_bash \n" .
+   "   fi \n" .
+   "#IDEV END   (This line used to detect idev setup-- do not remove.) \n";
+
+#  " if [[ !  \$PATH =~ \$USER\/bin(\$|:) ]]; then \n" .
+#  "   export PATH=\${PATH}:\$HOME/bin             \n" .
+#  " fi \n" .
+
+   $LOGIN_VERSION = 'setenv\s+idev_ver\s+(\d+\.\d+)';
+
+#                             GNU bash searches for these files in this order
+#                             First one found is sourced, not others are sourced.
+#                             1.) .bash_profile 2.) .bash_login 3.) .profile
+#                             idev will use the first one found
+   $LOGIN_FILE="none";
+$cnt=0;
+   if( -r "$HOME/.bash_profile" && $cnt == 0) { $LOGIN_FILE="$HOME/.bash_profile"; $cnt++ }
+   if( -r "$HOME/.bash_login"   && $cnt == 0) { $LOGIN_FILE="$HOME/.bash_login";   $cnt++;}
+   if( -r "$HOME/.profile"      && $cnt == 0) { $LOGIN_FILE="$HOME/.profile";      $cnt++;}
+
+   $found_hpcut_cmds = 0;
+    if( $LOGIN_FILE ne "none") {
+     open ( FILE,"<$LOGIN_FILE") or die "ERROR:  Cannot open $HOME/$LOGIN_FILE";
+     while(<FILE>) { if(/^$LOGIN_BEGIN/) { $found_hpcut_cmds = 1;}
+                     if(/$LOGIN_VERSION/) { $HPCUT_VER = $1;}       }
+    }
+    else{
+     $LOGIN_FILE="$HOME/.bash_profile";
+     print "Hmm, you don't have a $LOGIN_FILE file, I'm creating one.\n";
+     print "Idev will use: $LOGIN_FILE.\n";
+     open ( FILE,">$LOGIN_FILE") or die "ERROR:  Cannot create $LOGIN_FILE";
+    }
+   close(FILE);
+
+   $status = "Found idev cmds in the bash login file ($LOGIN_FILE).";
+   if( $found_hpcut_cmds == 0 && $idev_rm ne "uninstall"){
+          print "Idev needs to insert a few startup commands in your $LOGIN_FILE file.\n";
+          print "(To see the commands, set the IDEV_LOGIN_CMS to yes, and rerun idev.)\n";
+          print "May I insert the commands? (yes,no, default is yes) >";
+          $answer=<>;
+
+          $found_yes=0;
+          if( $answer =~ /^y[es]*/i ){ $found_yes=1; }
+          if( $answer eq "\n"       ){ $found_yes=1; }
+          if( !$found_yes ){
+             print "Your $LOGIN_FILE file will not be touched.  Bailing out.\n";
+             return "Command Insert rejected.", "0";}
+          print "\nAppending these commands to your $LOGIN_FILE file:\n\n";
+          print "$LOGIN_INSERT";
+          print "-------------------------------------------\n\n";
+          open ( FILE,">>$LOGIN_FILE") or die "ERROR:  Cannot open $LOGIN_FILE";
+             print FILE "$LOGIN_INSERT";
+          close(FILE);
+
+          open (FILE,">$HOME/.idev_bash") or die "ERROR:  Cannot open $HOME/.idev_bash";
+             print FILE "$LOGIN_CMDS";
+          close(FILE);
+
+          $status="Cmds added.";
+          $HPCUT_VER="latest";
+   }
+
+#                                                    Remove lines between #IDEV BEGIN
+#                                                    and #IDEV END in <bash_login>
+#                                                    Copy old version to <bash_login>.$$
+#                                                    Make backup in /tmp--super safe
+   if($idev_rm eq "uninstall" ){
+          $bash_login=basename($LOGIN_FILE);
+          copy($LOGIN_FILE, "/tmp/$bash_login.$$") or die "$bash_login backup to /tmp failed";
+          move($LOGIN_FILE,      "${LOGIN_FILE}.$$");
+          open ( FILE1, ">$LOGIN_FILE") or die "ERROR:  Cannot open $LOGIN_FILE." .
+                                        "MOVE ${LOGIN_FILE}.$$ back to ${LOGIN_FILE}";
+          open ( FILE2, "${LOGIN_FILE}.$$") or die "ERROR: Cannot open ${LOGIN_FILE}.$$.";
+          while(<FILE2>){
+
+             if( /^#IDEV BEGIN/ ){
+                while(<FILE2>){
+                   if( /^#IDEV END/ ){
+                   $_=<FILE2>; last; }
+                }
+             }
+
+             print FILE1
+
+          }
+          close(FILE1);
+          close(FILE2);
+          unlink($IDEVRC_FILE);
+          unlink("$HOME/.idev_bash");
+          unlink("$HOME/.idevrc");
+   }
+
+
+   return $status, $HPCUT_VER;
+}
+#http://www.zytrax.com/tech/web/regex.htm
+
+#-------------------------------------------------------------------
+
+# Extracts lines from failed submit file in /tmp (idev_submit_$$)
+#   Projects are listed after "Note that your available projects are"...
+# Removes files when finished and returns array of project names
+# submission doesn't fail for single project users.
+#    return "use_default" to tell idev to use blank string for project
+#    line in job resource specification.
+#    "has been submitted" will be returned in this case
+
+sub get_projects($){
+
+    $ppid=shift(@_);
+    open(SUBMIT_TEST,"/tmp/idev_acct_job_output_$ppid") or die;
+     $capture="off";
+     $count=0;
+    while(<SUBMIT_TEST>){
+     chomp;
+     if( /Note that your available projects are:/ ) { $capture="on"; }
+     if( /--------------------------------------/ ) { $capture="off";}
+     if( /FAILED/ )                                 { $capture="off";}
+     if( $capture eq "on" ) {
+       if( $count gt 0 ) { push(@projects,$_); }
+       $count++;
+     }
+#   Lonestar
+     if( /^Your job \d+ \("[^"]+"\) has been submitted/) {push(@projects,"use_default"); }
+# Stampede
+     if( /^Submitted batch job \d+/) {push(@projects,"use_default"); }
+   }
+     unlink("/tmp/idev_submit_$ppid");
+     print "@projects\n";
+
+}  #end of get_projects
+#                                                                               
+#                                                                               
+#                                                                               
+#                                                                               
+#                                                                               
+#                                                                               
+#                                                                               
+#                                                                               
+#                                      
