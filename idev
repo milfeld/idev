@@ -232,7 +232,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
      fi
 
 #                                                 Get time default
-     grep -q idev_time $HOME/.idevrc
+     grep -q idev_time${MID} $HOME/.idevrc
      if [[ $? == 0 ]]; then
         MY_TIME=`grep idev_time${MID} $HOME/.idevrc | sed "s/idev_time${MID}//"`
         MY_TIME="${MY_TIME%\\n}"               # get rid of return
@@ -273,7 +273,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
 
      fi
 
-     grep -q idev_queue $HOME/.idevrc
+     grep -q idev_queue${MID} $HOME/.idevrc
      if [[ $? == 0 ]]; then
         MY_QUEUE=`grep idev_queue${MID} $HOME/.idevrc | sed "s/idev_queue${MID}//"`
         MY_QUEUE="${MY_QUEUE%\\n}"               # get rid of return
@@ -291,7 +291,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
      fi
 
 
-     grep -q idev_rm_env $HOME/.idevrc
+     grep -q idev_rm_env${MID} $HOME/.idevrc
      if [[ $? == 0 ]]; then
         IDEV_RM_ENV=`grep idev_rm_env${MID} $HOME/.idevrc | sed "s/idev_rm_env${MID}//"`
         IDEV_RM_ENV="${IDEV_RM_ENV%\\n}"               # get rid of return
@@ -1456,12 +1456,13 @@ fi
           echo "Accounting appears not to be function on $MY_SYS."
           echo "Default accounting will be used."
           echo "NOTE:  idev_project${MID} is being set to use_default in .idevrc."
-          echo "NOTE:  When account is functioning again, remove the idev_project${MID} line."
+          echo "NOTE:  When accounting is functioning again, remove the idev_project${MID} line."
           echo "idev_project${MID} use_default" >> $HOME/.idevrc
+          echo "NOTE:  When accounting is functioning again, remove the above project line." >>$HOME/.idevrc
           IDEV_ACCOUNT=" "
           MY_ACCOUNT="use_default"
         else
-          echo " You have a single project which we will use as the default ."
+          echo " You have a single project which we will use as the default."
 
           MY_ACCOUNT=${project_array[0]}
           echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
