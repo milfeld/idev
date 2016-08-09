@@ -73,6 +73,7 @@
 #               Versions Number
    IDEV_VER=1.00
    IDEV_SETUP_VER=1.00
+   TACC_SUPPORTED_SYSTEM="stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
 
 #Determine the system
   myhostname=`hostname -f`
@@ -117,7 +118,7 @@ function ctrl_c() {
         fi
                          #Job submitted, but no job id yet.
         if [ "x$job_submitted" = "xyes" ]; then
-           echo "Please control-c again, SGE/SLURM is responding slowly and I need a job ID for cleanup."
+           echo "Please control-c again, SLURM is responding slowly and I need a job ID for cleanup."
            echo "job_id:$job_id job_submitted:$job_submitted"
         else
                          #User control-c'd out before job launched.
@@ -149,12 +150,12 @@ function ctrl_c() {
 #                file.  (The first system my use the default (no suffix)
 #                mechanism, if not included in the following hash)
 #                @TACC stampede and stampedeknl share $HOME
-#                     but stampede is not included-- stampede doesn't require
-#                     doesn't use a suffix.  stampedeknl requires the "knl" suffix
+#                     but stampede is not included-- stampede doesn't use this a suffix
+#                     stampedeknl requires the "knl" suffix
 #                           MY_SYS    Suffix
 #                                 |    |
 #                                 v    v
-  declare -A mac_sharehome_id=( [knl]=knl )
+# declare -A mac_sharehome_id=( [knl]=knl )  # Implement this when ls5 goes to bash 4.x
 
 #                 Defaults
   MY_MINUTES=30
@@ -165,7 +166,8 @@ function ctrl_c() {
   MY_QUEUE=development
   [[ $MY_SYS == "wrangler" ]]    && MY_QUEUE=debug
   [[ $MY_SYS == "hikari" ]]      && MY_QUEUE=normal
-# [[ $MY_SYS == "stampedeknl" ]] && MY_QUEUE=normal
+  [[ $MY_SYS == "stampedeknl" ]] && MY_QUEUE=normal
+  [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF == largemem  ]] && MY_QUEUE=largemem512GB
 
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
@@ -191,6 +193,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
    list_node_queue=no
            qselect=no
     default_mac_no=1
+        ls5_lrgmem=off    #ls5: has a largemem cluster with different queues
                                       #Make squeue look identical for ls5/stampede
    squeue_opts='-o %.18i %.15P %.9j %.8u %.2t %.10M %.6D %R' 
 
@@ -200,19 +203,23 @@ job_sleep=$(( MY_MINUTES * 60 ))
                                       #Get option suffix used in .idevrc file
                                       #MID = Machine ID suffix
   MID=""
-  for mac_key in "${!mac_sharehome_id[@]}"; do
-    [[ $MY_SYS ==  $mac_key ]] && MID=_${mac_sharehome_id[$mac_key]}
-  done
+#                                     #implement when ls5 goes to bash 4.x
+# for mac_key in "${!mac_sharehome_id[@]}"; do
+#   [[ $MY_SYS ==  $mac_key ]] && MID=_${mac_sharehome_id[$mac_key]}
+# done
   #FYI: if [ ${mac_share_home[missing]+_} ]; then echo "Found"; else echo "Not found"; fi
+
+ [[ $MY_SYS == knl ]] && MID=_knl
+ [[ $TACC_SLURM_CONF == largemem ]] && MID=_largemem
 
 
   if [ -e $HOME/.idevrc ]; then
 #                                                 Get Project Name
-     grep -q idev_project${MID} $HOME/.idevrc
+     grep -Pq "idev_project${MID}\s" $HOME/.idevrc
      if [[ $? == 0 ]]; then                      #Pick up last occurence
-        MY_ACCOUNT=`grep idev_project${MID} $HOME/.idevrc | tail -1 |sed "s/idev_project${MID}//"`
+        MY_ACCOUNT=`grep -P "idev_project${MID}\s" $HOME/.idevrc | tail -1 |sed "s/idev_project${MID}//"`
         MY_ACCOUNT="${MY_ACCOUNT%\\n}"               # get rid of return
-        MY_ACCOUNT=`echo $MY_ACCOUNT | sed 's/ //g'` # get rid of spaces
+        MY_ACCOUNT=`echo $MY_ACCOUNT | sed 's/\s//g'` # get rid of spaces
         if [[ $MY_ACCOUNT =~ ^$ ]]; then
             echo "Please "
             echo "       remove idev_project line${MID} from $HOME/.idevrc"
@@ -232,11 +239,11 @@ job_sleep=$(( MY_MINUTES * 60 ))
      fi
 
 #                                                 Get time default
-     grep -q idev_time${MID} $HOME/.idevrc
+     grep -Pq "idev_time${MID}\s" $HOME/.idevrc
      if [[ $? == 0 ]]; then
-        MY_TIME=`grep idev_time${MID} $HOME/.idevrc | sed "s/idev_time${MID}//"`
+        MY_TIME=`grep -P "idev_time${MID}\s" $HOME/.idevrc | sed "s/idev_time${MID}//"`
         MY_TIME="${MY_TIME%\\n}"               # get rid of return
-        MY_TIME=`echo $MY_TIME | sed 's/ //g'` # get rid of spaces
+        MY_TIME=`echo $MY_TIME | sed 's/\s//g'` # get rid of spaces
           if [[ $MY_TIME =~ ":" ]]; then
                    MY_H_RT="h_rt=$MY_TIME"
                    regex='0*([[:digit:]]+)[:::]0*([[:digit:]]+)[:::]0*([[:digit:]]+)'
@@ -249,22 +256,10 @@ job_sleep=$(( MY_MINUTES * 60 ))
                    fi
                    MY_MINUTES=$(( secs / 60 ))
                    job_sleep=$secs
-             #     if [[ $BATCH_SYS == "SGE" ]] ; then
-             #        echo "default time     : -l $MY_H_RT"
-             #     else
-             #        MY_hhmmss_TIME=$MY_TIME
-             #        echo "default time     : -t $MY_hhmmss_TIME"
-             #     fi
           else
                    MY_MINUTES=$MY_TIME
                             MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
                           MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
-             #     if [[ $BATCH_SYS == "SGE" ]] ; then
-             #       echo "time (minutes)   : -l $MY_H_RT"
-             #       echo "default time     : -l $MY_H_RT"
-             #     else
-             #       echo "default time     : -t $MY_hhmmss_TIME"
-             #     fi
                    job_sleep=$(( $MY_MINUTES * 60 ))
           fi
           echo "Default  time    : $MY_MINUTES min."
@@ -273,17 +268,17 @@ job_sleep=$(( MY_MINUTES * 60 ))
 
      fi
 
-     grep -q idev_queue${MID} $HOME/.idevrc
+     grep -Pq "idev_queue${MID}\s" $HOME/.idevrc
      if [[ $? == 0 ]]; then
-        MY_QUEUE=`grep idev_queue${MID} $HOME/.idevrc | sed "s/idev_queue${MID}//"`
-        MY_QUEUE="${MY_QUEUE%\\n}"               # get rid of return
-        MY_QUEUE=`echo $MY_QUEUE | sed 's/ //g'` # get rid of spaces
+        MY_QUEUE=`grep -P "idev_queue${MID}\s" $HOME/.idevrc | sed "s/idev_queue${MID}//"`
+        MY_QUEUE="${MY_QUEUE%\\n}"                # get rid of return
+        MY_QUEUE=`echo $MY_QUEUE | sed 's/\s//g'` # get rid of spaces
         [[ $MY_QUEUE =~ gpu    ]] && queue_arch=gpu
         [[ $MY_QUEUE =~ vis    ]] && queue_arch=gpu
         [[ $MY_QUEUE =~ serial ]] && queue_arch=serial
         echo "Default  queue   : $MY_QUEUE"
      else
-        if [[ $MY_QUEUE == normal ]]; then
+        if [[ $MY_QUEUE == normal && $MID == knl ]]; then
            echo "Default  queue   : $MY_QUEUE  (default pre-production queue: normal, production:development)"
         else
            echo "Default  queue   : $MY_QUEUE"
@@ -291,9 +286,9 @@ job_sleep=$(( MY_MINUTES * 60 ))
      fi
 
 
-     grep -q idev_rm_env${MID} $HOME/.idevrc
+     grep -Pq "idev_rm_env${MID}\s" $HOME/.idevrc
      if [[ $? == 0 ]]; then
-        IDEV_RM_ENV=`grep idev_rm_env${MID} $HOME/.idevrc | sed "s/idev_rm_env${MID}//"`
+        IDEV_RM_ENV=`grep -P "idev_rm_env${MID}\s" $HOME/.idevrc | sed "s/idev_rm_env${MID}\s//"`
         IDEV_RM_ENV="${IDEV_RM_ENV%\\n}"               # get rid of return
         IDEV_RM_ENV=`echo "$IDEV_RM_ENV" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
         echo "Removed env vars : $IDEV_RM_ENV"
@@ -380,14 +375,6 @@ case $MY_SYS in
              export IDEV_QDEL=scancel
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
              ;;
-        ls4) echo "System           : Lonestar"
-             MY_WAY=12; MY_CORES=12; CpN=12 # Cores/Node
-             MY_PROJECT=""
-             sleep_after_run=4
-             BATCH_SYS=SGE
-             Q="-q"
-             export IDEV_QDEL=qdel
-             ;;
    stampede) echo "System           : Stampede"
              MY_WAY=16;         MY_CORES=16; CpN=16 # Cores/Node
              MY_TOTAL_TASKS=16; MY_NODES=1;  CpN=16 # Cores/Node
@@ -425,6 +412,12 @@ case $MY_SYS in
              if [[ $queue_arch == serial ]]; then
                 MY_WAY=1;          MY_CORES=1;  CpN=24 # Cores/Node
                 MY_TOTAL_TASKS=1;  MY_NODES=1;  CpN=24 # Cores/Node
+             fi
+
+             if [[ $LMOD_FAMILY_MPI == mvapich2-largemem ]]; then
+                MY_WAY=32;         MY_CORES=32; CpN=32 # Cores/Node
+                MY_TOTAL_TASKS=32; MY_NODES=1;  CpN=32 # Cores/Node
+                ls5_lrgmem=on
              fi
 
              MY_PROJECT=""
@@ -499,45 +492,34 @@ while (( "$#" )); do
                   echo "idev creates an interactive session on a compute node"
                   echo "for executing serial, openmp-parallel, or mpi-parallel"
                   echo "code as you would in a batch job."
-                  echo "Supported systems: Lonestar, Longhorn and Stampede."
+                  echo "Supported systems: $TACC_SUPPORTED_SYSTEM."
                   echo ""
                   echo "Idev uses a single node by default and charges the project in \$HOME/.idevrc."
                   echo "Options can be in any order."
                   echo ""
-                  echo "For Lonestar:>>"
-                  echo "Use a login node window for MPI compiling, and an idev window for running."
-                  echo "The mpicc/mpif90 compiler does not work correctly on Lonestar compute nodes."
-                  echo "(You can compile openmp and serial code with intel compilers, though).<<"
+                  echo "On TACC systems:"
+                  echo "Compute nodes in the developement queue allow MPI compilation and execution."
+                  echo " <<On Stampede MPI mpicc/mpif90 compilers do not work* on compute nodes in other queues."
+                  echo "                            * missing license file or libraries when compiling."
+                  echo "  Use a login node window for MPI compiling, and an idev window for running."
+                  echo "  Other TACC systems allow MPI compilation and execution in any queue.>>"
                   echo " "
                   echo "OPTIONS:"
                   echo " OPTION  ARGUMENTS          DESCRIPTION"
                   echo ""
                   echo "  -A     account_name       sets account name (default: -A $MY_ACCOUNT)"
                   echo "  -m     minutes            sets time in minutes (default: $MY_MINUTES)"
-if [[ $BATCH_SYS == SLURM ]]; then
                   echo "  -n     total_tasks        Total number of tasks"
                   echo "  -N     nodes              Number of nodes"
-fi
-if [[ $BATCH_SYS == SGE ]]; then
-                  echo "  -pe    way cores          sets wayness & cores (default 1 node: -pe $MY_WAY $MY_CORES)"
-fi
 if [[ $MY_SYS == longhorn ]]; then
                   echo "  -P     project_name       project type for Longhorn {vis, data, gpgpu, or hpc}"
 fi
                   echo "  $Q     queue_name         sets queue to named queue (default: $Q $MY_QUEUE)"
-if [[ $BATCH_SYS == SGE ]]; then
-                  echo "  -r     resource_name      selects hardware "
-                  echo "                            (e.g. -r mem_total=250G or -r h=<specific nodes>)"
-                  echo "                            added to -l option as h=<name> (no default)"
-fi
-
-if [[ $BATCH_SYS == SLURM ]]; then
                   echo "  -r                        (no res. name) find and use my ACTIVE reservation (no questions)"
                   echo "  -r     reservation_name   requests use of a specific reservation"
                   echo "  -r     none               idev always automatically looks for reserations"
                   echo "                            and asks you to use an ACTIVE res. none==don't look/ask."
                   echo "                            (use    scontrol show reserations to see reservation details)"
-fi
 
                   echo "  -t     hh:mm:ss           sets time to hh:mm:ss (default: 00:${MY_MINUTES}:00, 30 min.)"
                   echo ""
@@ -546,29 +528,10 @@ fi
                   echo "  -qselect                  presents slurm queue to select from"
 
                   echo ""
-if [[ $BATCH_SYS == SGE ]]; then
-                  echo "  -rank0     [--rank0    ]  login to rank 0 node (may not be the master node)"
-                  echo "                            TACC users: no need to use this since NO_HOSTSORT "
-                  echo "                            env. var is set and task0 will be on master node."
-                  echo "  -uninstall [--uninstall]  removes idev login setup and \$HOME/.idevrc file."
-fi
                   echo "  -help [help, --help, -h]  displays (this) help message"
                   echo "  -v         [ --version ]  output version information and exit"
                   echo ""
                   echo "  Syntax and Examples:"
-if [[ $BATCH_SYS == SGE ]]; then
-                  echo "       Syn: idev     (defaults: 1 node, full wayness, $MY_MINUTES min., default account.)"
-                  echo "       Syn: idev  [-help | -v | -uninstall] "
-                  echo "       Syn  idev  [-q que.] [-m min.] [-t time ] [-pe way cores] \ "
-                  echo "                  [-A acct] [-r res.] [-P proj.]"
-
-                  echo "       ex1  idev -pe 12 12  -q development -A A-ccvis  -m 90 "
-                  echo "       ex2  idev -pe 12 96  -q normal                  -t 00:90:00 "
-                  echo "       ex3  idev -P vis                                   (a Longhorn Project type)"
-                  echo "       ex4  idev"
-                  echo "       ex5  idev -help"
-fi
-if [[ $BATCH_SYS == SLURM ]]; then
                   echo "       Syn: idev     (defaults: 1 node, 16 tasks, $MY_MINUTES min., default account.)"
                   echo "       Syn: idev  [-help | -v | -uninstall] "
                   echo "       Syn  idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
@@ -578,15 +541,14 @@ if [[ $BATCH_SYS == SLURM ]]; then
                   echo "       ex5  idev -help"
                   echo "       ex1  idev -p development -m 90       -A A-ccvis        -n 16"
                   echo "       ex2  idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -n 16 "
-fi
 
                   echo ""
                   echo "Idev ssh's to compute nodes with the -Y option to allow X forwarding for debugging."
                   echo ""
                   echo "Insert  \"idev_time${MID} MINUTES\",  \"idev_queue${MID} QUEUE\" or  \"idev_project${MID} PROJECT\" "
                   echo "       without quotes, one item per line in ~/.idevrc to set your own default "
-                  echo "       time, queue and project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
-                  echo "       E.g.  idev_time 60  <new line> idev_queue normal " 
+                  echo "       time, queue and/or project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
+                  echo "       E.g.  idev_time${MID} 60  <new line> idev_queue${MID} normal " 
                   echo ""
                   echo "Insert  \"idev_rm_env${MID} VAR_LIST\" "
                   echo "        in ~/.idevrc, where VAR_LIST is a space separated list of environment variables "
@@ -638,35 +600,19 @@ fi
 
    if [[ x$1 == x-pe ]]; then
                   known_option=yes
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                     shift; myway=$1
-                     shift; MY_CORES=$1
-                     MY_WAY=`echo $myway | sed s/way//`
-                     echo "Using Prog Env   : -pe ${MY_WAY}way $MY_CORES"
-                     MY_NODES=$(( MY_CORES / CpN ))
-                     EXTRA_TIME=`echo "scale=0;  l($MY_NODES)/l(10)" | bc -l`
-                     EXTRA_TIME=$(( MY_NODES * EXTRA_TIME / CpN / sleep_after_run_factor  ))
-  
-                     sleep_after_run=$(( sleep_after_run + EXTRA_TIME ))
-                   else
-                     echo -e "\n ERROR: **The -pe option is not allowed on $MY_SYS."
-                     echo -e "     It is not a valid $BATCH_SYS option."
-                     echo -e "     See options, execute: idev -help"
-                     do_exit=yes; OPT_ERR=1
-                   fi
+                   echo -e "\n ERROR: **The -pe option is not allowed on $MY_SYS."
+                   echo -e "     It is not a valid $BATCH_SYS option."
+                   echo -e "     See options, execute: idev -help"
+                   do_exit=yes; OPT_ERR=1
 
    fi
 
    if [[ x$1 == x-q ]]; then
                   known_option=yes
                    shift; MY_QUEUE=$1
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                      echo "Using queue      : -q $MY_QUEUE"
-                   else
-                      echo "Using queue      : -p $MY_QUEUE"
-                      CMDLINE_QUEUE=$MY_QUEUE
-                      queue_from=cmdline
-                   fi
+                   echo "Using queue      : -p $MY_QUEUE"
+                   CMDLINE_QUEUE=$MY_QUEUE
+                   queue_from=cmdline
 
    fi
 
@@ -688,13 +634,9 @@ fi
    if [[ x$1 == x-p ]]; then
                   known_option=yes
                    shift; MY_QUEUE=$1
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                      echo "Using queue      : -q $MY_QUEUE"
-                   else
-                      echo "Using queue      : -p $MY_QUEUE"
-                      CMDLINE_QUEUE=$MY_QUEUE
-                      queue_from=cmdline
-                   fi
+                   echo "Using queue      : -p $MY_QUEUE"
+                   CMDLINE_QUEUE=$MY_QUEUE
+                   queue_from=cmdline
 
    fi
 
@@ -718,86 +660,60 @@ fi
                      exit
                    fi
                    job_sleep=$secs
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                      echo "time (h_rt)      : -l $MY_H_RT"
-                   else
-                      MY_hhmmss_TIME=$1
-                      echo "time (hh:mm:ss)  : -t $MY_hhmmss_TIME"
-                   fi
+                   MY_hhmmss_TIME=$1
+                   echo "time (hh:mm:ss)  : -t $MY_hhmmss_TIME"
    fi
 
    if [[ x$1 == x-m ]]; then
                   known_option=yes
                    shift; MY_MINUTES=$1
-                          MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
-                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                     echo "time (minutes)   : -l $MY_H_RT"
-                   else
-                     echo "time (minutes)   : -t $MY_hhmmss_TIME"
-                   fi
+                          MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+                   echo "time (minutes)   : -t $MY_hhmmss_TIME"
                    job_sleep=$(( $MY_MINUTES * 60 ))
    fi
 
    if [[ x$1 == x-rank0 || x$1 == x--rank0 ]]; then
                   known_option=yes
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                     use_node_type=rank0
-                     CREATE_NODE_LIST_CMD="ibrun date >& /dev/null  #creates $HOME/.sge/*job*hostlist.* file"
-                     echo "SSHing to        :  rank 0 node"
-                   else
-                     echo -e "\n **The -rank0 option is not allowed on $MY_SYS."
-                     echo -e "     It is not a valid $BATCH_SYS option."
-                     echo -e "     See options, execute: idev -help"
-                     do_exit=yes; OPT_ERR=1
-                   fi
+                  echo -e "\n **The -rank0 option is not allowed on $MY_SYS."
+                  echo -e "     It is not a valid $BATCH_SYS option."
+                  echo -e "     See options, execute: idev -help"
+                  do_exit=yes; OPT_ERR=1
    fi
 
    if [[ x$1 == x-r ]]; then
                   known_option=yes
 
-                   if [[ $BATCH_SYS == "SGE" ]] ; then
-                      shift; MY_RESOURCE="-l  $1"
-                      echo "hardware request : $MY_RESOURCE"
-                   fi
 
-                   if [[ $BATCH_SYS == "SLURM" ]] ; then
-
-
-                      if [[ x$2 = x ]]; then
-                         # We are at the end of the line without a 
-                         # reservation name-- meaning we will look for any reservation.
+                   if [[ x$2 = x ]]; then
+                      # We are at the end of the line without a 
+                      # reservation name-- meaning we will look for any reservation.
+                      RESERVATION_CONTROL="FIND_IT"
+                      echo "Reservation      : Will search and request it for you."
+                   else
+                      if [[ x$2 =~ "x-" ]]; then
+                         # We have found the next option.  No reservation name
+                         # means we look for the reservation.
                          RESERVATION_CONTROL="FIND_IT"
-                         echo "Reservation      : Will search and request it for you."
+                         echo "Reservation      : Will find it for you."
                       else
-                         if [[ x$2 =~ "x-" ]]; then
-                            # We have found the next option.  No reservation name
-                            # means we look for the reservation.
-                            RESERVATION_CONTROL="FIND_IT"
-                            echo "Reservation      : Will find it for you."
+                         # Found reservation request with name
+                         shift
+                         if [[ $1 =~ none ]]; then
+                            RESERVATION_CONTROL="NONE"
+                            MY_RESERVATION=""
+                            echo "Reservation      : $1"
                          else
-                            # Found reservation request with name
-                            shift
-                            if [[ $1 =~ none ]]; then
-                               RESERVATION_CONTROL="NONE"
-                               MY_RESERVATION=""
-                               echo "Reservation      : $1"
-                            else
-                               RESERVATION_CONTROL="USER_SET"
-                               RESERVATION_NAME=$1
-                               MY_RESERVATION="--reservation=$1"
-                               echo "Reservation      : $1"
-                               MY_RESERVATION="#SBATCH $MY_RESERVATION"
-                            fi
+                            RESERVATION_CONTROL="USER_SET"
+                            RESERVATION_NAME=$1
+                            MY_RESERVATION="--reservation=$1"
+                            echo "Reservation      : $1"
+                            MY_RESERVATION="#SBATCH $MY_RESERVATION"
                          fi
-
                       fi
 
-                   # echo -e "\n ERROR: **The -r option is not allowed on $MY_SYS."
-                   # echo -e "     It is not a valid $BATCH_SYS option."
-                   # echo -e "     See options, execute: idev -help"
-                   # do_exit=yes; OPT_ERR=1
                    fi
+
    fi
 
    if [[ x$1 == x-P ]]; then
@@ -1366,31 +1282,18 @@ if [[ $check_project == yes ]]; then
   #                             Hmmm.  I cannot redirect error on this.
 
  if [[ $MY_ACCOUNT == none || -z $MY_ACCOUNT ]]; then
-     echo "We need a project to charge for interactive use.";
-     echo "We will be using a dummy job submission to determine your project(s).";
-     echo "We will store your (selected) project in the \$HOME/.idevrc file.";
-     echo ""
+   echo "We need a project to charge for interactive use.";
+   echo "We will be using a dummy job submission to determine your project(s).";
+   echo "We will store your (selected) project in the \$HOME/.idevrc file.";
+   echo ""
   #                             Submit bogus job
-if [[ $BATCH_SYS == SGE ]]; then
-qsub <<EOF 2>&1 >/tmp/idev_acct_job_output_$my_pid
-#$ -V
-#$ -pe 1way $MY_CORES
-#$ -q $MY_QUEUE
-#$ -l h_rt=00:01:00
-#$ $MY_RESOURCE
-#$ $MY_PROJECT
-EOF
 
-     echo "Please disregard above 2 lines from the qsub utility."
-     echo ""
+   #some systems don't have a normal queue
 
-fi
-
-if [[ $BATCH_SYS == SLURM ]]; then
    test_queue=normal
-   if [[ $MY_SYS == maverick ]]; then
-      test_queue=gpu
-   fi
+   [[ $MY_SYS == maverick ]]          && test_queue=gpu
+   [[ $TACC_SLURM_CONF == largemem ]] && test_queue=largemem512GB
+
 cat <<EOF >/tmp/idev_acct_job_$my_pid
 #!/bin/bash
 #SBATCH -J acct_tes
@@ -1400,79 +1303,79 @@ cat <<EOF >/tmp/idev_acct_job_$my_pid
 #SBATCH -t 00:01:00
 EOF
 
-sbatch   /tmp/idev_acct_job_$my_pid >& /tmp/idev_acct_job_output_$my_pid
-#rm -rf  /tmp/idev_acct_job_$my_pid
+   sbatch   /tmp/idev_acct_job_$my_pid >& /tmp/idev_acct_job_output_$my_pid
+   #rm -rf  /tmp/idev_acct_job_$my_pid
 
-fi
 
-  #                            Extract Projects from file in /tmp
-  #                            (Get_projects.pl script removes it.)
-  #  echo "HERE   idev_utils get_projects $my_pid ";
-     project_string=`$DIR/idev_utils get_projects $my_pid`;
-     project_array=( $project_string )
-  #                            Now ask user which one he wants to use if count>1.
-     if [[ ${#project_array[@]} > 1 ]]; then
+   #                            Extract Projects from file in /tmp
+   #                            (Get_projects.pl script removes it.)
+   #  echo "HERE   idev_utils get_projects $my_pid ";
+   project_string=`$DIR/idev_utils get_projects $my_pid`;
+   project_array=( $project_string )
+   #                            Now ask user which one he wants to use if count>1.
+   if [[ ${#project_array[@]} > 1 ]]; then
 
-       echo "Please select the NUMBER of the project you want to charge.\n";
-       count=1;
-       count=1;
-       for i in "${project_array[@]}"
-       do
-          echo $count $i
-          count=$(( $count + 1 ))
-       done
+     echo "Please select the NUMBER of the project you want to charge.\n";
+     count=1;
+     count=1;
+     for i in "${project_array[@]}"
+     do
+        echo $count $i
+        count=$(( $count + 1 ))
+     done
 
-       echo "Please type the NUMBER(default=1) and hit return: ";
-       read project_no
-       if [[ "$project_no" == "" ]]; then project_no=1; fi
+     echo "Please type the NUMBER(default=1) and hit return: ";
+     read project_no
+     if [[ "$project_no" == "" ]]; then project_no=1; fi
 
-       if [ $project_no -eq $project_no 2> /dev/null ]; then
-         echo ""  #keep shell happy
-       else
-         echo "You didn't type a number.  You typed $project_no. Try again."
-         exit 1
-       fi
-
-       echo "$project_no is the project number you selected."
-
-       if [[ $project_no -gt 0 && $project_no -le ${#project_array[@]} ]]; then
-  #    if [[ $project_no > 0 && $project_no <= ${project_array[@]} ]]; then
-         array_no=$(( $project_no - 1));
-         echo " OK I'll use ${project_array[$array_no]}. Thanks. "
-         echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
-         MY_ACCOUNT=${project_array[$array_no]}
-       else
-         echo "$project_no is not a valid number, please try again."
-         exit 1
-       fi
-
-       IDEV_ACCOUNT="-A  $MY_ACCOUNT"
-
+     if [ $project_no -eq $project_no 2> /dev/null ]; then
+       echo ""  #keep shell happy
      else
-     #  echo " You have a single project named ${project_array[0]}."
-     #  MY_ACCOUNT=${project_array[0]}
-     #  echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
-        if [[ x$project_string == x ]]; then
-          echo "Accounting appears not to be function on $MY_SYS."
-          echo "Default accounting will be used."
-          echo "NOTE:  idev_project${MID} is being set to use_default in .idevrc."
-          echo "NOTE:  When accounting is functioning again, remove the idev_project${MID} line."
-          echo "idev_project${MID} use_default" >> $HOME/.idevrc
-          echo "NOTE:  When accounting is functioning again, remove the above project line." >>$HOME/.idevrc
-          IDEV_ACCOUNT=" "
-          MY_ACCOUNT="use_default"
-        else
-          echo " You have a single project which we will use as the default."
-
-          MY_ACCOUNT=${project_array[0]}
-          echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
-
-          IDEV_ACCOUNT=" "
-
-        fi
+       echo "You didn't type a number.  You typed $project_no. Try again."
+       exit 1
      fi
 
-     rm -rf /tmp/idev_acct_job_output_$my_pid
+     echo "$project_no is the project number you selected."
+
+     if [[ $project_no -gt 0 && $project_no -le ${#project_array[@]} ]]; then
+#    if [[ $project_no > 0 && $project_no <= ${project_array[@]} ]]; then
+       array_no=$(( $project_no - 1));
+       echo " OK I'll use ${project_array[$array_no]}. Thanks. "
+       echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
+       MY_ACCOUNT=${project_array[$array_no]}
+     else
+       echo "$project_no is not a valid number, please try again."
+       exit 1
+     fi
+
+     IDEV_ACCOUNT="-A  $MY_ACCOUNT"
+
+   else
+   #  echo " You have a single project named ${project_array[0]}."
+   #  MY_ACCOUNT=${project_array[0]}
+   #  echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
+      if [[ x$project_string == x ]]; then
+        echo "Accounting appears not to be functioning on $MY_SYS."
+        echo "Default accounting will be used."
+        echo "NOTE:  idev_project${MID} is being set to use_default in .idevrc."
+        echo "NOTE:  When accounting is functioning again, remove the idev_project${MID} line."
+        echo "idev_project${MID} use_default" >> $HOME/.idevrc
+        echo "NOTE:  When accounting is functioning again, remove the above project line." >>$HOME/.idevrc
+        IDEV_ACCOUNT=" "
+        MY_ACCOUNT="use_default"
+      else
+        echo " You have a single project which we will use as the default."
+
+        MY_ACCOUNT=${project_array[0]}
+        echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
+
+        IDEV_ACCOUNT=" "
+
+      fi
+   fi
+
+   rm -rf /tmp/idev_acct_job_output_$my_pid
+
  fi
 fi
 
@@ -1493,131 +1396,6 @@ fi
    fi
 #################################### Setup Check End
 
-if [[ $BATCH_SYS == SGE ]]; then
-
-mult_proj_err="ERROR: You have multiple projects we can charge."
-
-cat >/tmp/myjob_$USER.$$ <<EOF
-#!/bin/${idev_login_shell}
-#$ -V
-#$ -cwd
-#$ -N  ${JOB_NAME}
-#$ -j  y
-#$ -o  \$HOME/.slurm/\$JOB_NAME.o\$JOB_ID
-#$ -pe ${MY_WAY}way ${MY_CORES}
-#$ -q  $MY_QUEUE
-#$ $IDEV_ACCOUNT
-#$ -t  $MY_hhmmss_TIME
-#$ $MY_RESOURCE
-#$ $MY_PROJECT
-
-$idev_env_set INTEL_LICENSE_FILE$idev_env_equal$my_intel_port_server
-
-$idev_pwd_cmd
-$DIR/idev_utils env_replication ${idev_login_shell} \$JOB_ID
-$CREATE_NODE_LIST_CMD
-sleep $job_sleep
- 
-EOF
- 
- #cp    /tmp/myjob_$USER.$$ /tmp/$USER_idev_job_$$
- qsub < /tmp/myjob_$USER.$$
- if [[ $? != 0 ]]; then
-    exit_msg=" idev detected an error in your resource request (see details above):\n Check your (this) command:\n $0 $cmd_args"
- #                                     Try this again, and analyze error report.
-    qsub_log=idev_qsub_err_$USER.$$
-    qsub <      /tmp/myjob_$USER.$$ 1>&2  >/tmp/$qsub_log
-    grep  "$mult_proj_err"  /tmp/$qsub_log >& /dev/null
-    if [[ $? == 0 && $MY_ACCOUNT =~ use_default ]]; then
-        exit_msg=" "
-        echo ""
-        echo "*** IDEV found that you have a new account   ***"
-        echo "*** You must reselect a default account.     ***"
-        echo "*** Execute   idev  to select a new default, ***"
-        echo "*** and begin your next idev session.        ***"
-        echo ""
-        rm -rf $HOME/.idevrc
-    fi
-    rm -rf /tmp/$qsub_log
-    exit
- fi
- 
- rm -rf /tmp/myjob_$USER.$$
- 
- job_id=none
- job_submitted=yes
- 
- ###                        I should ask to use the .sge
- ###                        maybe later. I'll just assume
- ###                        that I have "right" just like
- ###                        the the SGE batch system:)
- ##
- ###               Make dir. and copy file if necesary
- ##if [[ ! -d $my_intel_dir ]]; then
- ##   mkdir   $my_intel_dir
- ##   cp      $intel_dir/$intel_license $my_intel_dir
- ##fi
- ##
- ###               If no reasonable license file, get one
- ##if [ ! -f $my_intel_dir/intel.current.*.lic ]; then
- ##   cp        $intel_dir/$intel_license $my_intel_dir
- ##fi
- ##
- ###               If it doesn't match the System version,
- ###               get the new one; but remove old one
- ##present_intel_license=`basename    $intel_dir/*current*`
- ##     my_intel_license=`basename $my_intel_dir/*current*`
- ##
- ##if [[ $present_intel_license != $my_intel_license ]]; then
- ##   rm      $my_intel_dir/intel.current.*.lic
- ##   cp         $intel_dir/$intel_license $my_intel_dir
- ##fi
- 
- 
- 
- echo -e "\n After your idev job begins to run, a command prompt will appear,"
- echo -e   " and you can begin your interactive development session. "
-  
- echo -e   " We will report the job status every $monitor_sleep seconds: (qw=queue wait, r=running).\n"
- torf=1
- while [ $torf == 1 ]
- do
- 
-    qstat | grep "$JOB_NAME" >& /dev/null
-    if [ $? ]; then
-       mystatus=`qstat | awk '$3 ~ /'"$JOB_NAME"'/ { print $5}'`
-       echo "Job status:" $mystatus   in $MY_QUEUE queue.; echo ""
-       job_id=`qstat | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
-       if [ x"$mystatus" == "xr" ]; then
-          master_node=`qstat | awk '$3 ~ /'"$JOB_NAME"'/ { print $8}'`
-                JOBID=`qstat | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
-          nodestring=`echo $master_node | sed 's/.*@//'`
- 
-          echo "--> Job is now running (masternode =  $master_node) ."
-          echo "--> But, sleeping for $sleep_after_run seconds."
-          sleep $sleep_after_run
- #                                            Get master and rank 0 nodes
-          master_node=`echo $nodestring | sed 's/.'"$MY_SYS"'.*//'`
- 
- #                                            Set ssh to the node of choice
- #                                            Might be more general later.
-          [[ $use_node_type == master ]] && node=$master_node
-          if [[ $use_node_type == rank0  ]] ; then 
-             rank0_node=`head -n 1 $HOME/.sge/job.$JOBID.hostlist.*`
-             rank0_node=${rank0_node%%.*}
-             node=$rank0_node
-          fi
- 
-          echo "--> Launching interactive session on $node, the $use_node_type node...OK"
- #                                            Finally!
-          ssh -Y -A -o "StrictHostKeyChecking no" $node
-          exit
-       fi
-    fi
- 
- sleep $monitor_sleep
- done
-fi
 
 ##############  -------------------------------SLURM
 if [[ $BATCH_SYS == SLURM ]]; then
