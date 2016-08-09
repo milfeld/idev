@@ -258,8 +258,8 @@ job_sleep=$(( MY_MINUTES * 60 ))
                    job_sleep=$secs
           else
                    MY_MINUTES=$MY_TIME
-                            MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
-                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SGE/SLURM accept more than 2 digits in this field.
+                            MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
                    job_sleep=$(( $MY_MINUTES * 60 ))
           fi
           echo "Default  time    : $MY_MINUTES min."
@@ -573,28 +573,14 @@ fi
 
    if [[ x$1 == x-n ]]; then
                   known_option=yes
-                   if [[ $BATCH_SYS == "SLURM" ]] ; then
-                     shift; MY_TOTAL_TASKS=$1;  total_tasks_set=yes
-                     echo "Using total tasks: -n $MY_TOTAL_TASKS"
-                   else
-                     echo -e "\n ERROR: **The -N option is not allowed on $MY_SYS."
-                     echo -e "     It is not a valid $BATCH_SYS option."
-                     echo -e "     See options, execute: idev -help"
-                     do_exit=yes; OPT_ERR=1
-                   fi
+                  shift; MY_TOTAL_TASKS=$1;  total_tasks_set=yes
+                  echo "Using total tasks: -n $MY_TOTAL_TASKS"
    fi
 
    if [[ x$1 == x-N ]]; then
                   known_option=yes
-                   if [[ $BATCH_SYS == "SLURM" ]] ; then
-                     shift; MY_NODES=$1; IDEV_NODES="-N $1"; nodes_set=yes
-                     echo "Using nodes      : -N $MY_NODES"
-                   else
-                     echo -e "\n ERROR: **The -N option is not allowed on $MY_SYS."
-                     echo -e "     It is not a valid $BATCH_SYS option."
-                     echo -e "     See options, execute: idev -help"
-                     do_exit=yes; OPT_ERR=1
-                   fi
+                  shift; MY_NODES=$1; IDEV_NODES="-N $1"; nodes_set=yes
+                  echo "Using nodes      : -N $MY_NODES"
    fi
 
 
@@ -897,12 +883,9 @@ fi
 
 
 # Make sure there is a .slurm directory:(
-#set -x
-if [[ $BATCH_SYS == SLURM ]]; then
-  if [ ! -d $HOME/.slurm ]; then
-     mkdir  $HOME/.slurm
-     echo "Created          : \$HOME/.slurm"
-  fi
+if [ ! -d $HOME/.slurm ]; then
+   mkdir  $HOME/.slurm
+   echo "Created          : \$HOME/.slurm"
 fi
 
 
@@ -924,7 +907,6 @@ fi
 #    2+  1          ---                         doit 1 active
 #    3+  0,2...     ---                         Advise
 
-if [[ $BATCH_SYS == SLURM ]]; then
 
 RESERVATION_NAME_FOUND=no
 
@@ -939,16 +921,16 @@ RESERVATION_NAME_FOUND=no
     res_stat=${reservation_array[2]}
     res_name=${reservation_array[3]}
     res_queue=${reservation_array[4]}
- #                          (If we see 1 reservation all is done.)
+    #                       (If we see 1 reservation all is done.)
  
- #                          Get ACTIVE reservation  information here.
+    #                       Get ACTIVE reservation  information here.
    #if [[ $res_totl -ge 2 && $res_actv -le 1 ]]; then
     if [[ $res_totl -ge 2 ]]; then
        for((i=0;i<${#reservation_array[@]};i++))
        do
- #                         Find 1 ACTIVE reservation.
- #                         For res_actv=0, nothing changes since ACTIVE not found.
- #                         We avoid the case for 2 or more ACTIVE reservations (later).
+   #                       Find 1 ACTIVE reservation.
+   #                       For res_actv=0, nothing changes since ACTIVE not found.
+   #                       We avoid the case for 2 or more ACTIVE reservations (later).
            #echo "RES_NAME $i ${reservation_array[$i]}"
            if [[ ${reservation_array[$i]} == ACTIVE ]]; then
              res_stat=${reservation_array[$i]}
@@ -958,8 +940,8 @@ RESERVATION_NAME_FOUND=no
            fi
        done
  
- #                         We validate what the user has set a valid name.
- #                         This many not be an (the) active reservation!
+   #                       We validate what the user has set a valid name.
+   #                       This many not be an (the) active reservation!
        if [[ $RESERVATION_CONTROL == USER_SET ]]; then
        for((i=0;i<${#reservation_array[@]};i++))
        do
@@ -1191,7 +1173,6 @@ RESERVATION_NAME_FOUND=no
     fi
  
  fi
-fi 
  # Array info, etc. 
  #http://stackoverflow.com/questions/6723426/looping-over-arrays-printing-both-index-and-value
  #http://tldp.org/HOWTO/Bash-Prog-Intro-HOWTO-10.html
@@ -1206,7 +1187,7 @@ fi
 
 
 #################beg POST RESERVATION
-################
+
 #                                       Make adjustment if reservation doesn't have a queue.
 ##                                       -- when queue is '(null)'
                    if [[ $res_queue == '(null)' && $RESERVATION_USE == yes ]]; then
@@ -1397,8 +1378,7 @@ fi
 #################################### Setup Check End
 
 
-##############  -------------------------------SLURM
-if [[ $BATCH_SYS == SLURM ]]; then
+####################################beg Submit SLURM batch job
 
 mult_proj_err="ERROR: You have multiple projects to charge to"
 
@@ -1427,31 +1407,33 @@ sleep $job_sleep
 EOF
 
 #sbatch /tmp/myjob_$USER.$$
- sbatch $HOME/.slurm/myjob_$USER.$$
+sbatch $HOME/.slurm/myjob_$USER.$$
 
- if [[ $? != 0 ]]; then
-    exit_msg=" idev detected an error in your resource request (see details above):\n Check your (this) command:\n   $0 $cmd_args \n"
- #                                     Try this again, and analyze error report.
-    qsub_log=idev_qsub_err_$USER.$$
-    sbatch   /tmp/myjob_$USER.$$ >&  /tmp/$qsub_log
-    grep  "$mult_proj_err"  /tmp/$qsub_log >& /dev/null
-    if [[ $? == 0 && $MY_ACCOUNT =~ use_default ]]; then
-        exit_msg=" "
-        echo ""
-        echo "*** IDEV found that you have a new project               ***"
-        echo "*** OR your default project (account) is not valid.      ***"
-        echo "*** The default project is being removed from ~/.idevrc. ***"
-        echo "*** Execute idev again to select a new default--         ***"
-        echo "*** and begin your next idev session.                    ***"
-        echo ""
-        sed  "/idev_project${MID}/d" $HOME/.idevrc > $HOME/.idevrc_$$
-        mv   $HOME/.idevrc           $HOME/.idevrc_$$_safety
-        mv   $HOME/.idevrc_$$        $HOME/.idevrc
- 
-    fi
-    rm -rf /tmp/$qsub_log
-    exit
- fi
+####################################end Submit SLURM batch job
+
+if [[ $? != 0 ]]; then
+   exit_msg=" idev detected an error in your resource request (see details above):\n Check your (this) command:\n   $0 $cmd_args \n"
+#                                     Try this again, and analyze error report.
+   qsub_log=idev_qsub_err_$USER.$$
+   sbatch   /tmp/myjob_$USER.$$ >&  /tmp/$qsub_log
+   grep  "$mult_proj_err"  /tmp/$qsub_log >& /dev/null
+   if [[ $? == 0 && $MY_ACCOUNT =~ use_default ]]; then
+       exit_msg=" "
+       echo ""
+       echo "*** IDEV found that you have a new project               ***"
+       echo "*** OR your default project (account) is not valid.      ***"
+       echo "*** The default project is being removed from ~/.idevrc. ***"
+       echo "*** Execute idev again to select a new default--         ***"
+       echo "*** and begin your next idev session.                    ***"
+       echo ""
+       sed  "/idev_project${MID}/d" $HOME/.idevrc > $HOME/.idevrc_$$
+       mv   $HOME/.idevrc           $HOME/.idevrc_$$_safety
+       mv   $HOME/.idevrc_$$        $HOME/.idevrc
+
+   fi
+   rm -rf /tmp/$qsub_log
+   exit
+fi
  
 #rm -rf /tmp/myjob_$USER.$$
 if  [ ! -d "$IDEV_KEEP_MY_JOB_DIR" ] ;then
@@ -1461,103 +1443,107 @@ else
   rm -rf $HOME/.slurm/myjob_$USER.$$
 fi
  
- job_id=none
- job_submitted=yes
- 
- echo -e "\n After your idev job begins to run, a command prompt will appear,"
- echo -e   " and you can begin your interactive development session. "
+job_id=none
+job_submitted=yes
+  
+echo -e "\n After your idev job begins to run, a command prompt will appear,"
+echo -e   " and you can begin your interactive development session. "
   
 #echo -e   " We will report the job status every $monitor_sleep seconds: (qw=queue wait, r=running).\n"
- echo -e   " We will report the job status every $monitor_sleep seconds: (PD=pending, R=running).\n"
- torf=1
+echo -e   " We will report the job status every $monitor_sleep seconds: (PD=pending, R=running).\n"
+torf=1
 #                             Environment file check: parameters.
- found_env_file=1
- time_waited_env_file=0
- sleep_time_env_file=5
+found_env_file=1
+time_waited_env_file=0
+sleep_time_env_file=5
 
- while [ $torf == 1 ]
- do
+####################################beg Wait on job
 
-    squeue -p $MY_QUEUE "$squeue_opts" -u $USER | grep "$JOB_NAME" >& /dev/null
-    if [ $? ]; then
-       mystatus=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $5}'`
-       echo "job status:  $mystatus"
-       job_id=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
-       if [ x"$mystatus" == "xR" ]; then
-          master_node=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $8}'`
-                JOBID=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
+while [ $torf == 1 ]
+do
+  
+   squeue -p $MY_QUEUE "$squeue_opts" -u $USER | grep "$JOB_NAME" >& /dev/null
+   if [ $? ]; then
+      mystatus=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $5}'`
+      echo "job status:  $mystatus"
+      job_id=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
+      if [ x"$mystatus" == "xR" ]; then
+         master_node=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $8}'`
+               JOBID=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
+  
+         master_node=`echo $master_node | sed 's/,.*//'`; 
+         if [[ $master_node =~ \[ ]]; then    #Has form c557-[100-104]
+           master_node=`echo $master_node | sed 's/\[//'`
+           master_node=`echo $master_node | sed -e 's/\(^........\).*/\1/'`
+         fi
+         nodestring=$master_node
+  
 
-          master_node=`echo $master_node | sed 's/,.*//'`; 
-          if [[ $master_node =~ \[ ]]; then    #Has form c557-[100-104]
-            master_node=`echo $master_node | sed 's/\[//'`
-            master_node=`echo $master_node | sed -e 's/\(^........\).*/\1/'`
-          fi
-          nodestring=$master_node
+         echo "--> Job is now running on masternode= $master_node...OK"
+         echo -ne "--> Sleeping for $sleep_after_run seconds."
+         sleep $sleep_after_run
+         echo "..OK"
+#                                            Get master and rank 0 nodes
+         master_node=`echo $nodestring | sed 's/.'"$MY_SYS"'.*//'`
 
- 
-          echo "--> Job is now running on masternode= $master_node...OK"
-          echo -ne "--> Sleeping for $sleep_after_run seconds."
-          sleep $sleep_after_run
-          echo "..OK"
- #                                            Get master and rank 0 nodes
-          master_node=`echo $nodestring | sed 's/.'"$MY_SYS"'.*//'`
- 
- #                                            Set ssh to the node of choice
- #                                            Might be more general later.
- #                                            May need this SGE trick later
-          [[ $use_node_type == master ]] && node=$master_node
-          if [[ $use_node_type == rank0  ]] ; then 
-             rank0_node=`head -n 1 $HOME/.slurm/job.$JOBID.hostlist.*`
-             rank0_node=${rank0_node%%.*}
-             node=$rank0_node
-          fi
-#                                             Check to make sure environment file
-#                                             is in /tmp on the compute node.
-#                                             Multi-node jobs may take up to 25 sec.
-#                                             before the script is started.
-          echo -ne "--> Checking to make sure your job has initialized an env for you."
-#####
-          while [ $found_env_file == 1 ]; do
-          
-              ssh -o "StrictHostKeyChecking no" $node "ls /tmp/idev_${USER}_${idev_login_shell}_env.${JOBID}" >& /dev/null
-              if [[ $? == 0 ]]; then
-                 found_env_file=0
-                 if [[ $time_waited_env_file > 0 ]]; then
-                    echo ""
-                    echo "--> Oh joy! The environment is now in place...OK"
-                 else
-                    echo "...OK"
-                 fi
-              else
-          
-                 if [[ $time_waited_env_file == 0 ]]; then
+#                                            Set ssh to the node of choice
+#                                            Might be more general later.
+#                                            May need this SGE trick later
+         [[ $use_node_type == master ]] && node=$master_node
+         if [[ $use_node_type == rank0  ]] ; then 
+            rank0_node=`head -n 1 $HOME/.slurm/job.$JOBID.hostlist.*`
+            rank0_node=${rank0_node%%.*}
+            node=$rank0_node
+         fi
+#                                            Check to make sure environment file
+#                                            is in /tmp on the compute node.
+#                                            Multi-node jobs may take up to 25 sec.
+#                                            before the script is started.
+         echo -ne "--> Checking to make sure your job has initialized an env for you."
+####
+         while [ $found_env_file == 1 ]; do
+         
+             ssh -o "StrictHostKeyChecking no" $node "ls /tmp/idev_${USER}_${idev_login_shell}_env.${JOBID}" >& /dev/null
+             if [[ $? == 0 ]]; then
+                found_env_file=0
+                if [[ $time_waited_env_file > 0 ]]; then
                    echo ""
-                   echo "Hmm, for multi-node jobs, (or when $BATCH_SYS is sleepy) we need to"
-                   echo "     give $BATCH_SYS more time to kick things off (maybe 20 sec.). "
-                   echo "     I'll check every $sleep_time_env_file secs."
-                   echo ""
-                 fi
-                 echo   "     Time waited (sec.) : $time_waited_env_file"
-                 sleep $sleep_time_env_file
-                 time_waited_env_file=$(( $time_waited_env_file + 5 ))
-              fi
-          done
+                   echo "--> Yahoo! The environment is now in place...OK"
+                else
+                   echo "...OK"
+                fi
+             else
+         
+                if [[ $time_waited_env_file == 0 ]]; then
+                  echo ""
+                  echo "Hmm, for multi-node jobs, (or when $BATCH_SYS is sleepy) we need to"
+                  echo "     give $BATCH_SYS more time to kick things off (maybe 20 sec.). "
+                  echo "     I'll check every $sleep_time_env_file secs."
+                  echo ""
+                fi
+                echo   "     Time waited (sec.) : $time_waited_env_file"
+                sleep $sleep_time_env_file
+                time_waited_env_file=$(( $time_waited_env_file + 5 ))
+             fi
+         done
+  
+####
+  
+         echo "--> Creating interactive terminal session (login) on $use_node_type node $node."
+#                                            Finally!
+         echo -en "\007"
+         ssh -Y -A  -o "StrictHostKeyChecking no" $node
+         exit
+      fi
+   fi
 
-#####
+sleep $monitor_sleep
+done
+####################################end Wait on job
 
-          echo "--> Creating interactive terminal session (login) on $use_node_type node $node."
- #                                            Finally!
-          echo -en "\007"
-          ssh -Y -A  -o "StrictHostKeyChecking no" $node
-          exit
-       fi
-    fi
- 
- sleep $monitor_sleep
- done
-fi
 
-fi 
+
+
 #trapping
 #http://rimuhosting.com/knowledgebase/linux/misc/trapping-ctrl-c-in-bash
 #http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files
