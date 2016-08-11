@@ -371,8 +371,8 @@ login_sourcing=yes   #use .login/.profile sourcing code for creating batch env
 case $MY_SYS in
 
    maverick) echo "System           : Maverick"
-             MY_WAY=20;         MY_CORES=20
-             MY_TOTAL_TASKS=20; MY_NODES=1;  CpN=20 # Cores/Node
+             MY_CORES=20;       CpN=20  # Cores/Node
+             MY_TOTAL_TASKS=20; MY_NODES=1
              MY_PROJECT=""
              sleep_after_run=7
              ## -P  vis, data, gpgpu, hpc
@@ -384,8 +384,8 @@ case $MY_SYS in
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
              ;;
    stampede) echo "System           : Stampede"
-             MY_WAY=16;         MY_CORES=16; CpN=16 # Cores/Node
-             MY_TOTAL_TASKS=16; MY_NODES=1;  CpN=16 # Cores/Node
+             MY_CORES=16;       CpN=16 # Cores/Node
+             MY_TOTAL_TASKS=16; MY_NODES=1
              MY_PROJECT=""
              sleep_after_run=7
              BATCH_SYS=SLURM
@@ -395,8 +395,8 @@ case $MY_SYS in
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
              ;;
     wrangler) echo "System           : Wrangler"
-              MY_WAY=24;         MY_CORES=24; CpN=24 # Cores/Node
-              MY_TOTAL_TASKS=24; MY_NODES=1;  CpN=24 # Cores/Node
+              MY_CORES=24;       CpN=24 # Cores/Node
+              MY_TOTAL_TASKS=24; MY_NODES=1
               MY_PROJECT=""
               sleep_after_run=7
               BATCH_SYS=SLURM
@@ -408,23 +408,23 @@ case $MY_SYS in
         ls5) echo "System           : Lonestar"
 
              if [[ $queue_arch == standard ]]; then
-                MY_WAY=24;         MY_CORES=24; CpN=24 # Cores/Node
-                MY_TOTAL_TASKS=24; MY_NODES=1;  CpN=24 # Cores/Node
+                MY_CORES=24;       CpN=24 # Cores/Node
+                MY_TOTAL_TASKS=24; MY_NODES=1
              fi
 
              if [[ $queue_arch == gpu ]]; then
-                MY_WAY=10;         MY_CORES=10; CpN=10 # Cores/Node
-                MY_TOTAL_TASKS=10; MY_NODES=1;  CpN=10 # Cores/Node
+                MY_CORES=10;       CpN=10 # Cores/Node
+                MY_TOTAL_TASKS=10; MY_NODES=1
              fi
 
              if [[ $queue_arch == serial ]]; then
                 MY_WAY=1;          MY_CORES=1;  CpN=24 # Cores/Node
-                MY_TOTAL_TASKS=1;  MY_NODES=1;  CpN=24 # Cores/Node
+                MY_TOTAL_TASKS=1;  MY_NODES=1
              fi
 
-             if [[ $LMOD_FAMILY_MPI == mvapich2-largemem ]]; then
-                MY_WAY=32;         MY_CORES=32; CpN=32 # Cores/Node
-                MY_TOTAL_TASKS=32; MY_NODES=1;  CpN=32 # Cores/Node
+             if [[ $TACC_SLURM_CONF =~ _LG ]]; then
+                MY_CORES=32;       CpN=32 # Cores/Node
+                MY_TOTAL_TASKS=32; MY_NODES=1
                 ls5_lrgmem=on
              fi
 
@@ -441,8 +441,8 @@ case $MY_SYS in
              ;;
      hikari) echo "System           : Hikari"
 
-             MY_WAY=24;         MY_CORES=24; CpN=24 # Cores/Node
-             MY_TOTAL_TASKS=24; MY_NODES=1;  CpN=24 # Cores/Node
+             MY_CORES=24;       CpN=24 # Cores/Node
+             MY_TOTAL_TASKS=24; MY_NODES=1
 
              MY_PROJECT=""
              sleep_after_run=7
@@ -456,8 +456,8 @@ case $MY_SYS in
              ;;
         knl) echo "System           : stampede-knl"
 
-             MY_WAY=68;        MY_CORES=68; CpN=68 # Cores/Node
-             MY_TOTAL_TASKS=1; MY_NODES=1;  CpN=68 # Cores/Node
+             MY_TOTAL_TASKS=68; MY_NODES=1
+             MY_CORES=68;       CpN=68 # Cores/Node
 
              MY_PROJECT=""
              sleep_after_run=5
@@ -815,7 +815,7 @@ fi
        done
 
        echo "Please type the NUMBER(default=$default_mac_no) and hit return: ";
-       read    my_queue
+       read  my_queue
        if [[ "$my_queue" == "" ]]; then my_queue=$default_mac_no; fi
 
        if ! [[ $my_queue =~ ^[0-9]+$  &&  $my_queue < $count ]]; then
@@ -824,7 +824,7 @@ fi
        fi
 
        MY_QUEUE=${node_queue[ $(($my_queue-1)) ]}
-       echo "$MY_QUEUE is the queue you selected."
+       echo "--> $MY_QUEUE is the queue you selected."
   fi
 
 ###SELECT QUEUE ^^^
@@ -878,6 +878,15 @@ if [[ $MY_QUEUE =~ grace-serial ]]; then
   fi
 fi
 
+#                            # 512GB and 1TB queues have diff architectures
+if [[ $MY_SYS == ls5 && $MY_QUEUE == largemem1TB &&
+      $total_tasks_set == no && $nodes_set = no ]]; then
+
+   MY_NODES=1 ;  MY_TOTAL_TASKS=48;
+   MY_CORES=48;             CpN=48 # Cores/Node
+   ls5_lrgmem=on
+
+fi
 
 ############################################end  Dependent options
 
@@ -1319,7 +1328,7 @@ EOF
      done
 
      echo "Please type the NUMBER(default=1) and hit return: ";
-     read -s project_no
+     read project_no
      if [[ "$project_no" == "" ]]; then project_no=1; fi
 
      if [ $project_no -eq $project_no 2> /dev/null ]; then
@@ -1329,7 +1338,7 @@ EOF
        exit 1
      fi
 
-     echo " $project_no is the project number you selected."
+     echo "--> $project_no is the project number you selected."
 
      if [[ $project_no -gt 0 && $project_no -le ${#project_array[@]} ]]; then
 #    if [[ $project_no > 0 && $project_no <= ${project_array[@]} ]]; then
