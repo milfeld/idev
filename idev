@@ -68,10 +68,18 @@
 #                                                06/14/2016 KentM 
 #Made normal for default until in full production
 #                                                07/14/2016 KentM 
+# Setup for Large mem cluster on ls5
+# All systems can use -qselect/-pselect and -queues
+#
+# Fixed auto project.  If 2nd project added, user is
+# prompted for a default.  (Much cleaner way to do this now.)
+#
+# Only file $HOME/.slurm/${JOB_NAME}.o%j is retained now.
+#                                                 08/11/2016 Kent Milfeld
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.00
+   IDEV_VER=1.3.0
    IDEV_SETUP_VER=1.00
    TACC_SUPPORTED_SYSTEM="stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
 
@@ -167,7 +175,7 @@ function ctrl_c() {
   [[ $MY_SYS == "wrangler" ]]    && MY_QUEUE=debug
   [[ $MY_SYS == "hikari" ]]      && MY_QUEUE=normal
   [[ $MY_SYS == "stampedeknl" ]] && MY_QUEUE=normal
-  [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF == largemem  ]] && MY_QUEUE=largemem512GB
+  [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
 
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
@@ -210,7 +218,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
   #FYI: if [ ${mac_share_home[missing]+_} ]; then echo "Found"; else echo "Not found"; fi
 
  [[ $MY_SYS == knl ]] && MID=_knl
- [[ $TACC_SLURM_CONF == largemem ]] && MID=_largemem
+ [[ $TACC_SLURM_CONF =~ _LG ]] && MID=_largemem
 
 
   if [ -e $HOME/.idevrc ]; then
@@ -559,7 +567,7 @@ fi
                   do_exit=yes; OPT_ERR=0
    fi
 
-#                                           Login to rank 0 node, may not be the master node.
+#                                           Version Info
    if [[ x$1 == x-version || x$1 == x--version || x$1 == x-v ]]; then
                   known_option=yes
                   echo "Version          : $IDEV_VER"
@@ -748,10 +756,11 @@ if [ x$MY_SYS = "xls5" ] &&
    MY_TOTAL_TASKS=1;  MY_NODES=1;  CpN=24 # Cores/Node
 fi
 
-if [[ $MY_SYS == "knl" ]]; then
+###SELECT QUEUE vvv
 
- #sinfo -h > $HOME/.idev_knl_sinfo
-  sinfo -h --format="%.15R" >  $HOME/.idev_knl_sinfo
+ # Get list of queues -- this should be done wo a file
+
+  sinfo -h --format="%.15R" >  $HOME/.idev${MID}_sinfo
 
   declare -a list
   declare -a node_queue
@@ -776,7 +785,8 @@ if [[ $MY_SYS == "knl" ]]; then
          echo  "     ${node_queue[i]} "
       fi
       ((++i))
-  done < $HOME/.idev_knl_sinfo
+  done < $HOME/.idev${MID}_sinfo
+  rm -rf $HOME/.idev${MID}_sinfo
 
   [[ $list_node_queue == "yes" ]] && exit
 
@@ -789,7 +799,7 @@ if [[ $MY_SYS == "knl" ]]; then
   done
 
 
-  #SELECT QUEUE
+  #ACTUAL QUEUE SELECTION
   if [[ $qselect == yes ]]; then
        echo "Please select the NUMBER of the queue you want to use.\n";
 
@@ -816,10 +826,8 @@ if [[ $MY_SYS == "knl" ]]; then
        MY_QUEUE=${node_queue[ $(($my_queue-1)) ]}
        echo "$MY_QUEUE is the queue you selected."
   fi
-  #
 
-
-fi
+###SELECT QUEUE ^^^
 
 
 if [ x$MY_SYS = "xls5" ] &&  
@@ -1263,9 +1271,11 @@ if [[ $check_project == yes ]]; then
   #                             Hmmm.  I cannot redirect error on this.
 
  if [[ $MY_ACCOUNT == none || -z $MY_ACCOUNT ]]; then
+   echo ""
    echo "We need a project to charge for interactive use.";
-   echo "We will be using a dummy job submission to determine your project(s).";
-   echo "We will store your (selected) project in the \$HOME/.idevrc file.";
+  #echo "We will be using a dummy job submission to determine your project(s).";
+   echo "for a Single Project : We store \"use_default\"              in the \$HOME/.idevrc file.";
+   echo "for Multiple Projects: We will store your selected project in the \$HOME/.idevrc file.";
    echo ""
   #                             Submit bogus job
 
@@ -1273,7 +1283,9 @@ if [[ $check_project == yes ]]; then
 
    test_queue=normal
    [[ $MY_SYS == maverick ]]          && test_queue=gpu
-   [[ $TACC_SLURM_CONF == largemem ]] && test_queue=largemem512GB
+if [[ $IDEV_TEST != ON ]]; then
+   [[ $TACC_SLURM_CONF =~ _LG ]] && test_queue=largemem512GB
+fi
 
 cat <<EOF >/tmp/idev_acct_job_$my_pid
 #!/bin/bash
@@ -1285,7 +1297,8 @@ cat <<EOF >/tmp/idev_acct_job_$my_pid
 EOF
 
    sbatch   /tmp/idev_acct_job_$my_pid >& /tmp/idev_acct_job_output_$my_pid
-   #rm -rf  /tmp/idev_acct_job_$my_pid
+
+   [[ $IDEV_DEBUG != ON ]] && rm -rf  /tmp/idev_acct_job_$my_pid
 
 
    #                            Extract Projects from file in /tmp
@@ -1306,7 +1319,7 @@ EOF
      done
 
      echo "Please type the NUMBER(default=1) and hit return: ";
-     read project_no
+     read -s project_no
      if [[ "$project_no" == "" ]]; then project_no=1; fi
 
      if [ $project_no -eq $project_no 2> /dev/null ]; then
@@ -1316,7 +1329,7 @@ EOF
        exit 1
      fi
 
-     echo "$project_no is the project number you selected."
+     echo " $project_no is the project number you selected."
 
      if [[ $project_no -gt 0 && $project_no -le ${#project_array[@]} ]]; then
 #    if [[ $project_no > 0 && $project_no <= ${project_array[@]} ]]; then
@@ -1355,7 +1368,7 @@ EOF
       fi
    fi
 
-   rm -rf /tmp/idev_acct_job_output_$my_pid
+   [[ $IDEV_DEBUG != ON ]] && rm -rf /tmp/idev_acct_job_output_$my_pid
 
  fi
 fi
@@ -1400,38 +1413,47 @@ $idev_rm_perl5
 rm -rf /tmp/idev_${USER}_${idev_login_shell}_env.[0-9]*
 $DIR/idev_utils env_replication ${idev_login_shell} \$SLURM_JOB_ID
 #                         This provides a source file for old and new /etc/profile.d/*idev*
-cp /tmp/idev_${USER}_${idev_login_shell}_env.\${SLURM_JOB_ID} /tmp/idev_${idev_login_shell}_env.\${SLURM_JOB_ID} 
+#cp /tmp/idev_${USER}_${idev_login_shell}_env.\${SLURM_JOB_ID} /tmp/idev_${idev_login_shell}_env.\${SLURM_JOB_ID} 
 $CREATE_NODE_LIST_CMD
 sleep $job_sleep
 
 EOF
 
 #sbatch /tmp/myjob_$USER.$$
-sbatch $HOME/.slurm/myjob_$USER.$$
+sbatch $HOME/.slurm/myjob_$USER.$$ 2>&1 | tee /tmp/idev_submit_${USER}_$my_pid
+
+[[ $IDEV_DEBUG != ON ]] && rm -rf $HOME/.slurm/myjob_$USER.$$
 
 ####################################end Submit SLURM batch job
 
-if [[ $? != 0 ]]; then
-   exit_msg=" idev detected an error in your resource request (see details above):\n Check your (this) command:\n   $0 $cmd_args \n"
+if [[ ${PIPESTATUS[0]} != 0 ]]; then
+   a=" idev detected an error in your resource request (see details above):\n "
+   b=" Here is the command you executed:\n   $0 $cmd_args \n"
+   exit_msg=${a}${b}
+            
 #                                     Try this again, and analyze error report.
-   qsub_log=idev_qsub_err_$USER.$$
-   sbatch   /tmp/myjob_$USER.$$ >&  /tmp/$qsub_log
-   grep  "$mult_proj_err"  /tmp/$qsub_log >& /dev/null
+   grep  "$mult_proj_err"  /tmp/idev_submit_${USER}_$my_pid >& /dev/null
    if [[ $? == 0 && $MY_ACCOUNT =~ use_default ]]; then
        exit_msg=" "
        echo ""
-       echo "*** IDEV found that you have a new project               ***"
-       echo "*** OR your default project (account) is not valid.      ***"
-       echo "*** The default project is being removed from ~/.idevrc. ***"
-       echo "*** Execute idev again to select a new default--         ***"
-       echo "*** and begin your next idev session.                    ***"
+       echo "--> IDEV found one of the following on $MY_SYS:"
+       echo "***     You now have more than one account project        ***"
+       echo "***     Specifying no account project is no longer valid. ***"
+       echo "*** The default project is being removed from ~/.idevrc.  ***"
+       echo "--> Your old .idevrc has been moved to .idevrc_$$_safety " 
        echo ""
-       sed  "/idev_project${MID}/d" $HOME/.idevrc > $HOME/.idevrc_$$
-       mv   $HOME/.idevrc           $HOME/.idevrc_$$_safety
-       mv   $HOME/.idevrc_$$        $HOME/.idevrc
+       echo "--> EXECUTE IDEV AGAIN TO SELECT A NEW DEFAULT ACCOUNT.   ***"
+       echo "*** and begin your next idev session.                     ***"
+       echo ""
+
+       sed  "/idev_project${MID}\s/d"      $HOME/.idevrc |
+       sed  "/remove the above project/d"> $HOME/.idevrc_$$
+       mv   $HOME/.idevrc                  $HOME/.idevrc_$$_safety
+       mv   $HOME/.idevrc_$$               $HOME/.idevrc
 
    fi
-   rm -rf /tmp/$qsub_log
+
+   [[ $IDEV_DEBUG != ON ]] && rm -rf /tmp/idev_submit_${USER}_$my_pid
    exit
 fi
  
