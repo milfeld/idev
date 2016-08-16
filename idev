@@ -437,6 +437,9 @@ case $MY_SYS in
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
 
              MY_QUEUE=development
+             if [[ $TACC_SLURM_CONF =~ _LG ]]; then
+                MY_QUEUE=largemem512GB
+             fi
 
              ;;
      hikari) echo "System           : Hikari"
@@ -1430,12 +1433,11 @@ EOF
 
 #sbatch /tmp/myjob_$USER.$$
 sbatch $HOME/.slurm/myjob_$USER.$$ 2>&1 | tee /tmp/idev_submit_${USER}_$my_pid
-
-[[ $IDEV_DEBUG != ON ]] && rm -rf $HOME/.slurm/myjob_$USER.$$
+sbatch_status=${PIPESTATUS[0]}
 
 ####################################end Submit SLURM batch job
 
-if [[ ${PIPESTATUS[0]} != 0 ]]; then
+if [[ $sbatch_status != 0 ]]; then
    a=" idev detected an error in your resource request (see details above):\n "
    b=" Here is the command you executed:\n   $0 $cmd_args \n"
    exit_msg=${a}${b}
@@ -1463,15 +1465,17 @@ if [[ ${PIPESTATUS[0]} != 0 ]]; then
    fi
 
    [[ $IDEV_DEBUG != ON ]] && rm -rf /tmp/idev_submit_${USER}_$my_pid
+   [[ $IDEV_DEBUG != ON ]] && rm -rf $HOME/.slurm/myjob_$USER.$$
    exit
 fi
+
+   [[ $IDEV_DEBUG != ON ]] && rm -rf /tmp/idev_submit_${USER}_$my_pid
  
-#rm -rf /tmp/myjob_$USER.$$
 if  [ ! -d "$IDEV_KEEP_MY_JOB_DIR" ] ;then
-  rm -rf $HOME/.slurm/myjob_$USER.$$
+   [[ $IDEV_DEBUG != ON ]] && rm -rf $HOME/.slurm/myjob_$USER.$$
 else
-  cp $HOME/.slurm/myjob_$USER.$$ $IDEV_KEEP_MY_JOB_DIR/myjob_$USER.$$
-  rm -rf $HOME/.slurm/myjob_$USER.$$
+   cp     $HOME/.slurm/myjob_$USER.$$ $IDEV_KEEP_MY_JOB_DIR/myjob_$USER.$$
+   rm -rf $HOME/.slurm/myjob_$USER.$$
 fi
  
 job_id=none
