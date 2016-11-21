@@ -68,20 +68,53 @@
 #                                                06/14/2016 KentM 
 #Made normal for default until in full production
 #                                                07/14/2016 KentM 
-# Setup for Large mem cluster on ls5
-# All systems can use -qselect/-pselect and -queues
+#   Setup for Large mem cluster on ls5
+#   All systems can use -qselect/-pselect and -queues
 #
-# Fixed auto project.  If 2nd project added, user is
-# prompted for a default.  (Much cleaner way to do this now.)
+#   Fixed auto project.  If 2nd project added, user is
+#   prompted for a default.  (Much cleaner way to do this now.)
 #
-# Only file $HOME/.slurm/${JOB_NAME}.o%j is retained now.
+#   Only file $HOME/.slurm/${JOB_NAME}.o%j is retained now.
 #                                                 08/11/2016 Kent Milfeld
+#
+#   Defined sbatch function/alias for bash/tcsh in idev_utils.
+#   States that sbatch is not allowed on compute nodes.
+#                                                 08/30/2016  Kent Milfeld
+
+#   /tmp/idev_${USER}_${idev_login_shell}_env.${JOBID} is the SOURCE file
+#   Older machines use a old /etc/profile.d/z85_idev.sh/tcsh that sources
+#   a SOURCE file with _${USER}.  This is controlled by Rober McClay.
+#
+#       uses _${USER} zfile prefix Compute node regex   
+#              v      v             V                  
+#        ls5  yes zzz85_  nid[0-9][0-9]    c[0-9]-c[0-9] lgmem[0-9][0-9]
+#        knl  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
+#   wrangler  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
+#     hikari  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]
+#   stampede  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
+#   maverick  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
+
+#   remove "c[0-9]-c[0-9]", this is wrong
+#   
+#   generic   yes z85_ c[0-9][0-9] nid[0-9][0-9] vis[0-9] visbig lgmem[0-9][0-9]
+
+#   _${USER} file is now created on all machines
+#   on stampede/maverick _${USER} file is copied to file without _${USER}
+#                                                 08/30/2016  Kent Milfeld
+#
+#   All defaults are now printed at beginning (e.g. total tasks, # of nodes).
+#   "Using ... x" is printed when default is changed by command line arg.
+#                                                 09/06/2016  Kent Milfeld
+
 #------------------------------------------------------------------------------
 #
 #               Versions Number
    IDEV_VER=1.3.0
    IDEV_SETUP_VER=1.00
    TACC_SUPPORTED_SYSTEM="stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
+
+   DOTHIS="#"  # comment out cp cmd in job script. Old z85_ scripts need file without
+               # $USER in name-- line is activated with DOTHIS="" for stampede/maverick
 
 #Determine the system
   myhostname=`hostname -f`
@@ -151,7 +184,8 @@ function ctrl_c() {
 #                 idev puts the default project in .idevrc
 #                 pick it up here for the help option
 
-  my_pid=$$
+                              # idev only uses first 5 digits of pid.
+  my_pid=`printf "%05d" $$`   # fill with leading zeros if $$ is less than 5 digits
 
 #                If two or more systems share a $HOME file system
 #                create a distiguishing suffix for option within the ~/.idevrc
@@ -172,15 +206,16 @@ function ctrl_c() {
 #                                 Stampede1 requires a default set here
 #                                 For other systems it is set in SYSTEM case selection below.
   MY_QUEUE=development
-  [[ $MY_SYS == "wrangler" ]]    && MY_QUEUE=debug
-  [[ $MY_SYS == "hikari" ]]      && MY_QUEUE=normal
-  [[ $MY_SYS == "stampedeknl" ]] && MY_QUEUE=normal
+  [[ $MY_SYS == "wrangler" ]]  && MY_QUEUE=debug
+  [[ $MY_SYS == "hikari"   ]]  && MY_QUEUE=normal
+  [[ $MY_SYS == "knl"      ]]  && MY_QUEUE=normal
   [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
 
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
   MY_RESERVATION=""
   RESERVATION_USE=no
+  MY_EMAIL=""
 
 JOB_NAME=idv${my_pid:(-5)}
 monitor_sleep=4
@@ -204,6 +239,7 @@ job_sleep=$(( MY_MINUTES * 60 ))
         ls5_lrgmem=off    #ls5: has a largemem cluster with different queues
                                       #Make squeue look identical for ls5/stampede
    squeue_opts='-o %.18i %.15P %.9j %.8u %.2t %.10M %.6D %R' 
+    MY_ADDRESS=none
 
 
 ############################################beg  .idevrc options
@@ -286,8 +322,8 @@ job_sleep=$(( MY_MINUTES * 60 ))
         [[ $MY_QUEUE =~ serial ]] && queue_arch=serial
         echo "Default  queue   : $MY_QUEUE"
      else
-        if [[ $MY_QUEUE == normal && $MID == knl ]]; then
-           echo "Default  queue   : $MY_QUEUE  (default pre-production queue: normal, production:development)"
+        if [[ $MY_QUEUE == normal && $MID == _knl ]]; then
+           echo "Default  queue   : $MY_QUEUE      (If long wait, use development queue.)"
         else
            echo "Default  queue   : $MY_QUEUE"
         fi
@@ -301,6 +337,14 @@ job_sleep=$(( MY_MINUTES * 60 ))
         IDEV_RM_ENV=`echo "$IDEV_RM_ENV" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
         echo "Removed env vars : $IDEV_RM_ENV"
         export IDEV_RM_ENV
+     fi
+
+     grep -Pq "idev_email_address${MID}\s" $HOME/.idevrc
+     if [[ $? == 0 ]]; then
+        MY_ADDRESS=`grep -P "idev_email_address${MID}\s" $HOME/.idevrc | sed "s/idev_email_address${MID}\s//"`
+        MY_ADDRESS="${MY_ADDRESS%\\n}"               # get rid of return
+        MY_ADDRESS=`echo "$MY_ADDRESS" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
+        export MY_ADDRESS
      fi
 
   fi
@@ -368,6 +412,8 @@ job_sleep=$(( MY_MINUTES * 60 ))
 
 login_sourcing=yes   #use .login/.profile sourcing code for creating batch env
 
+TOT_TASK_msg=""
+
 case $MY_SYS in
 
    maverick) echo "System           : Maverick"
@@ -382,6 +428,7 @@ case $MY_SYS in
              IDEV_NODES=""    #Usually not set
              export IDEV_QDEL=scancel
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
+             DOTHIS=""    #execute cp cmd in job script-- old z85_ script needs this
              ;;
    stampede) echo "System           : Stampede"
              MY_CORES=16;       CpN=16 # Cores/Node
@@ -393,6 +440,7 @@ case $MY_SYS in
              IDEV_NODES=""    #Usually not set
              export IDEV_QDEL=scancel
              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
+             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
              ;;
     wrangler) echo "System           : Wrangler"
               MY_CORES=24;       CpN=24 # Cores/Node
@@ -459,8 +507,10 @@ case $MY_SYS in
              ;;
         knl) echo "System           : stampede-knl"
 
-             MY_TOTAL_TASKS=68; MY_NODES=1
+             MY_TOTAL_TASKS=4;  MY_NODES=1
              MY_CORES=68;       CpN=68 # Cores/Node
+
+             TOT_TASK_msg="       (e.g. use -n 68 -N 1 for 1 MPI proc/core)"
 
              MY_PROJECT=""
              sleep_after_run=5
@@ -478,6 +528,10 @@ case $MY_SYS in
              exit 1
              ;;
 esac
+
+     echo "Default tot tasks: -n $MY_TOTAL_TASKS $TOT_TASK_msg"
+     echo "Default nodes    : -N $MY_NODES"
+     echo "  end of defaults: ----------------------------------------------"
 
 ######
 
@@ -531,6 +585,8 @@ fi
                   echo "  -r     none               idev always automatically looks for reserations"
                   echo "                            and asks you to use an ACTIVE res. none==don't look/ask."
                   echo "                            (use    scontrol show reserations to see reservation details)"
+                  echo "  -e     email_address      notify when job begins, uses idev_email_address in "
+                  echo "                            \$HOME/.idevrc if no email_address is supplied."
 
                   echo "  -t     hh:mm:ss           sets time to hh:mm:ss (default: 00:${MY_MINUTES}:00, 30 min.)"
                   echo ""
@@ -560,6 +616,9 @@ fi
                   echo "       without quotes, one item per line in ~/.idevrc to set your own default "
                   echo "       time, queue and/or project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
                   echo "       E.g.  idev_time${MID} 60  <new line> idev_queue${MID} normal " 
+                  echo ""
+                  echo "Insert  \"idev_email_address${MID} MYADDRESS\", without quotes in ~/.idevrc so you can use -e without"
+                  echo "        an address option on the idev command line. Substitue your email address for MYADDRESS."
                   echo ""
                   echo "Insert  \"idev_rm_env${MID} VAR_LIST\" "
                   echo "        in ~/.idevrc, where VAR_LIST is a space separated list of environment variables "
@@ -725,13 +784,62 @@ fi
                    fi
    fi
 
+   if [[ x$1 == x-e ]]; then
+                  known_option=yes
+                   echo "Job begin email  :"
+
+             #---------EMAIL
+                   # Check here for command option email_address
+                   if [[ "$#" == 1 ]]; then   # At end of arg list wo email addr: Must Use Default, if available
+                      if [[ $MY_ADDRESS == "none" ]] ; then
+                         echo "ERROR: -e option requires IP address (or email address entry in \$HOME/.idevrc)"
+                         do_exit=yes; OPT_ERR=1
+                         break # stop parsing
+                      fi
+                      echo "Email address    : $MY_ADDRESS (default)"
+                      using_rc_email_address=yes
+             
+                   else
+                      shift  #Check for email address
+                      if [[ "$1" =~ @ ]]; then
+                         MY_ADDRESS="$1"
+                         echo "Email address    : $MY_ADDRESS"
+                         using_rc_email_address=no
+                      else
+                         set -- $1 "$@"   #Not an email address, unshift
+             
+                         if [[ $MY_ADDRESS == "none" ]] ; then  #OK no cmd line email -- Must have email from .idevrc
+                            echo "ERROR: -e option requires IP address (or email address entry in \$HOME/.idevrc)"
+                            do_exit=yes; OPT_ERR=1
+                            break # stop parsing
+                         fi
+                         echo "Email address    : $MY_ADDRESS (default)"
+                         using_rc_email_address=yes
+                      fi
+                   fi      
+
+                   if ! [[ $MY_ADDRESS =~ @ ]]; then
+                     echo -e "\n ERROR: ** Detected improper email address -- no @ found."
+                     echo -e "               Found email address $MY_ADDRESS."
+                     echo -e "               Check command line or ~/.idevrc idev_email_address value."
+                     if [[ $using_rc_email_address == no ]]; then
+                       echo -e "               An email ADDRESS is REQUIRED with the -e option"
+                       echo -e "               (unless you specify one in ~/.idevrc; see idev -help)."
+                     fi
+                     do_exit=yes; OPT_ERR=1
+                     break # stop parsing
+                   fi
+
+                   MY_EMAIL="#SBATCH --mail-type=BEGIN --mail-user=$MY_ADDRESS"
+   fi
+
+#  last check!
    if [[ $known_option == "no" ]]; then
                      echo -e "\n ERROR: **The $1 option is not know."
                      echo -e "          To see options, execute: idev -help."
                      do_exit=yes; OPT_ERR=2
-            
-   fi
 
+   fi
 
    shift
 
@@ -821,7 +929,7 @@ fi
        read  my_queue
        if [[ "$my_queue" == "" ]]; then my_queue=$default_mac_no; fi
 
-       if ! [[ $my_queue =~ ^[0-9]+$  &&  $my_queue < $count ]]; then
+       if ! [[ $my_queue =~ ^[0-9]+$  &&  (($my_queue -lt $count)) ]]; then
          echo " That was not a valid response.  You typed $my_queue. Try again."
          exit 1
        fi
@@ -1418,14 +1526,15 @@ cat >$HOME/.slurm/myjob_$USER.$$ <<EOF
 #SBATCH $IDEV_NODES
 #SBATCH $IDEV_ACCOUNT
 $MY_RESERVATION
+$MY_EMAIL
 
 $idev_pwd_cmd
 $idev_rm_perl5
 #                         Remove old files (needed for grace-serial queue).
 rm -rf /tmp/idev_${USER}_${idev_login_shell}_env.[0-9]*
 $DIR/idev_utils env_replication ${idev_login_shell} \$SLURM_JOB_ID
-#                         This provides a source file for old and new /etc/profile.d/*idev*
-#cp /tmp/idev_${USER}_${idev_login_shell}_env.\${SLURM_JOB_ID} /tmp/idev_${idev_login_shell}_env.\${SLURM_JOB_ID} 
+#                         This provides a source file for old and new /etc/profile.d/*idev.sh/tcsh scripts
+$DOTHIS cp /tmp/idev_${USER}_${idev_login_shell}_env.\${SLURM_JOB_ID} /tmp/idev_${idev_login_shell}_env.\${SLURM_JOB_ID} 
 $CREATE_NODE_LIST_CMD
 sleep $job_sleep
 

@@ -51,7 +51,10 @@ use File::Basename;
 #   Remove SSH environment variables                       03/27/2015
 #   Allow user to list env vars to exclude in .idevrc      03/27/2015
 
-
+#   Defined sbatch function/alias for bash/tcsh.           08/30/2016
+#   States that sbatch is not allowed on compute nodes.    08/30/2016
+#   Env. vars in /tmp file now use single quote instead
+#   of double quotes. Robert Mclay request.                10/20/2016
 
 sub env_replication(@);
 sub tcsh_login_insertion(@);
@@ -163,11 +166,13 @@ sub env_replication(@){
      $CMD   = "export ";
      $UNCMD = "unset ";
      $EQIV  = "=";
+     $no_sbatch = "function sbatch() { echo -e \"\\nNOTIFICATION: sbatch not available on compute nodes. Use a login node.\\n\"; }; export -f sbatch \n";
    }
    else{
      $CMD   = "setenv ";
      $UNCMD = "unsetenv ";
      $EQIV  = " ";
+     $no_sbatch = "alias sbatch \'echo    \"\\nNOTIFICATION: sbatch not available on compute nodes.  Use a login node.\\n\"\'\n"
    }
 
      $len = 1;
@@ -210,11 +215,14 @@ sub env_replication(@){
    open(FILE,">$myenv_filename") or die;
    print "File: $myenv_filename\n";
    foreach $key (keys(%myenv)){
-      print FILE "$CMD $key${EQIV}\"$myenv{$key}\"\n";
+     #print FILE "$CMD $key${EQIV}\"$myenv{$key}\"\n"; 
+      print FILE "$CMD $key${EQIV}\'$myenv{$key}\'\n";
    }
   #foreach $key (keys(%unmyenv)){
   #   print FILE "$UNCMD $key\n";
   #}
+
+   print FILE $no_sbatch;
    close(FILE);
 
    #--------------------------------- alias
