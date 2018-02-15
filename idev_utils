@@ -56,6 +56,12 @@ use File::Basename;
 #   Env. vars in /tmp file now use single quote instead
 #   of double quotes. Robert Mclay request.                10/20/2016
 
+#   Don't export functions when Z shell is used.
+#   Solution: if BASH_VERSION defined, export.
+#   Requested by Robert Mclay.                             01/17/2017
+#   Don't remove MANPATH from environment
+#   By requested.                                          07/07/2017
+
 sub env_replication(@);
 sub tcsh_login_insertion(@);
 sub bash_login_insertion(@);
@@ -86,7 +92,15 @@ sub get_reservation($){
    $tot_actv = 0;
    $reservations="";
    $USER=shift(@_);
-   open(RESERVATIONS,"scontrol show reservations | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+
+#  Allow testing of reservations:  IDEV_RESERVATION_TEST=yes and file reservations with mock reservations
+   if( defined $ENV{"IDEV_RESERVATION_TEST"}){
+     open(RESERVATIONS,"cat ./reservations | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+   }else {
+     open(RESERVATIONS,"scontrol show reservations | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
+   }
+
+#
   #open(RESERVATIONS,"cat ./see_0a0i0n | egrep -e '(Users=|ReservationName=|Nodes=)' |") or die;
    while(<RESERVATIONS>){
      #if( $status eq "none" ){    #just find the first reservation
@@ -142,7 +156,8 @@ sub env_replication(@){
    $my_shell = shift(@_);
    $my_idev  = shift(@_);
 
-   my @env_exclude_list=qw(SHELL_STARTUP_DEBUG_T0 LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module() BASH_FUNC_module%%  BASH_FUNC_ml() BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
+   my @env_exclude_list=qw(SHELL_STARTUP_DEBUG_T0 LESSOPEN DISPLAY LS_COLORS _ module BASH_FUNC_module() BASH_FUNC_module%%  BASH_FUNC_ml() BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
+## my @env_exclude_list=qw(SHELL_STARTUP_DEBUG_T0 LESSOPEN DISPLAY MANPATH LS_COLORS _ module BASH_FUNC_module() BASH_FUNC_module%%  BASH_FUNC_ml() BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
 #  my @env_exclude_list=qw(LESSOPEN DISPLAY MANPATH LS_COLORS _ module  BASH_FUNC_module%%  LOADEDMODULES BASH_FUNC_ml%% SSH_CLIENT  SSH_TTY  SSH_AUTH_SOCK  SSH_CONNECTION);
    my %exclude;
    foreach (@env_exclude_list) { $exclude{$_} = 1; }
@@ -166,7 +181,8 @@ sub env_replication(@){
      $CMD   = "export ";
      $UNCMD = "unset ";
      $EQIV  = "=";
-     $no_sbatch = "function sbatch() { echo -e \"\\nNOTIFICATION: sbatch not available on compute nodes. Use a login node.\\n\"; }; export -f sbatch \n";
+    #$no_sbatch = "function sbatch() { echo -e \"\\nNOTIFICATION: sbatch not available on compute nodes. Use a login node.\\n\"; }; export -f sbatch \n";
+     $no_sbatch = "function sbatch() { echo -e \"\\nNOTIFICATION: sbatch not available on compute nodes. Use a login node.\\n\"; }; if [ -n \"\${BASH_VERSION+x}\" ]; then export -f sbatch; fi \n";
    }
    else{
      $CMD   = "setenv ";

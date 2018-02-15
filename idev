@@ -92,29 +92,84 @@
 #   wrangler  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
 #     hikari  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]
 #   stampede  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
-#   maverick  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
+#   maverick2 no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]
+#   stampede2          c[0-9][0-9][0-9]-[0-9][0-9][0-9]
 
 #   remove "c[0-9]-c[0-9]", this is wrong
 #   
 #   generic   yes z85_ c[0-9][0-9] nid[0-9][0-9] vis[0-9] visbig lgmem[0-9][0-9]
 
 #   _${USER} file is now created on all machines
-#   on stampede/maverick _${USER} file is copied to file without _${USER}
+#   on stampede/maverick2 _${USER} file is copied to file without _${USER}
 #                                                 08/30/2016  Kent Milfeld
 #
 #   All defaults are now printed at beginning (e.g. total tasks, # of nodes).
 #   "Using ... x" is printed when default is changed by command line arg.
 #                                                 09/06/2016  Kent Milfeld
+#
+#   Added options --tasks-per-node --ntasks-per-node and -tpn
+#   Final option  -- allows non-conflicting SLURM options after --
+#   Added new logic for -N enforcement
+#   Enforce -N requirement when cmd line only uses -n or tasks-per-node.
+#   For queues with Hyperthreaded compute nodes, request users to
+#     select a default Tasks per Node (TpN) and save in .idevrc--
+#     idev suggests to use Cores per Node (CpN) value.
+#   " ->" is the official sentinel for an idev response
 
+#   New format for resource report
+# knl$ ./idev -N 2 -- w c562-033
+# -> Defaults file    : ~/.idevrc   
+# -> System           : knl         
+# -> Queue            : normal        (idev  default       )  [If long wait, use development queue.    ]
+# -> Nodes            : 2             (cmd line: -N        )
+# -> Tasks per Node   : 68            (~/.idevrc           )
+# -> Time (minutes)   : 30            (idev  default       )
+# -> Project          : A-ccsc        (~/.idevrc           )
+# -> SLURM options    : w c562-033    (cmd line: --        )
+#
+#  Don't export functions in zsh (e.g. function sbatch()). Reqested by R.McLay
+#
+#  If command line -p option supplied, and user is asked to accept a reservation,
+#  advise user that -p option will be ignored (reservation must use queue of 
+#  reserved nodes).  Requested by Lars Koesterke
+#
+#-> ** WARNING "-p <QUEUE> option will be ignored if you accept this reservation.
+#->             Reservation uses queue of reserved nodes.
+#->             Respond no if you want to use the <QUEUE> queue.
+#
+#                                                 02/15/2017  Kent Milfeld
+#
+#  Included logic to exit if idev execution is attempted on a compute node.
+#                                                 04/10/2017  Kent Milfeld
+#  If queue is not in "up" state, advise user.
+#  Put back MANPATH variable on nodes.
+#  If use has more than 1 active reservation, as for a selection.
+#  Now there is a generic select_one (of these) function.
+#  Print out reservation information in details of idev submission.
+#  4 testing: IDEV_RESERVATION_TEST=yes; put scontrol show res in "reservation" file
+#  fixed typos, rewording of reservation info (now that reservations are listed).
+#
+#                                                 07/09/2017  Kent Milfeld
+#
+#  If more than 2 ACTIVE reservation, now allow user to opt out of
+#  using a reservation.
+#  Advise users of rogue (old) version to use updated version.
+#                                                 02/79/2018  Kent Milfeld
+# Check  at 1564
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.3.0
+   IDEV_VER=1.5.3
    IDEV_SETUP_VER=1.00
-   TACC_SUPPORTED_SYSTEM="stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
+   IDEV_SYM="->"
+   TACC_SUPPORTED_SYSTEM="stampede2, stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
+   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2     )  #requires user define default total tasks
+   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272)
+   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68 )
 
    DOTHIS="#"  # comment out cp cmd in job script. Old z85_ scripts need file without
-               # $USER in name-- line is activated with DOTHIS="" for stampede/maverick
+               # $USER in name-- line is activated with DOTHIS="" for stampede/maverick2
+
 
 #Determine the system
   myhostname=`hostname -f`
@@ -140,19 +195,53 @@ trap ctrl_c INT EXIT
 did_exit=no
 exit_msg=""
 
-#                         Trap Function.  Deletes job on exit of this script
+#RESOURCE SELECTION  begin
+# Uh!!! ls5 uses bash 3.2.51, everybody else has moved on to 4. Cannot use associative arrays to get numbers  ${pr_no_sys}
+#  declare -A rl_no=( ["sys"]="0" ["que"]="1" ["N"]="2" ["tpn"]="3" ["n"]="4" ["tm"]="5" ["A"]="6" ["rc"]="7" ["e"]="8" ["s"]="9" ["rv"]="10" ["sb"]="11")
+
+ pr_no_sys=0;pr_no_que=1;pr_no_N=2;pr_no_tpn=3;pr_no_n=4;pr_no_tm=5;pr_no_A=6;pr_no_rc=7;pr_no_e=8;pr_no_s=9;pr_no_rv=10;pr_no_sb=11;
+pr_no_rc=0;pr_no_sys=1;pr_no_que=2;pr_no_N=3; pr_no_tpn=4;pr_no_n=5;pr_no_tm=6;pr_no_A=7;pr_no_e=8;pr_no_s=9;pr_no_rv=10;pr_no_sb=11;
+pr_no_rc=0;pr_no_sys=1;pr_no_res=2;pr_no_que=3;pr_no_N=4; pr_no_tpn=5;pr_no_n=6;pr_no_tm=7;pr_no_A=8;pr_no_e=9;pr_no_s=10;pr_no_rv=11;pr_no_sb=12;
+
+                           # Standard formats for resources  2/3 = 2/3 args; "l" = long "e" email
+#   res_format4=' -> %-17.17s: %-12.12s  (%-20.20s)  [%-40.40s]'
+#   res_format3=' -> %-17.17s: %-12.12s  (%-20.20s)'
+#  res_format3e=' -> %-17.17s: %-40.40s  (%-20.20s)'
+#  res_format3l=' -> %-17.17s: %-12.12s  (%-27.27s)'
+#   res_format2=' -> %-17.17s: %-12.12s'
+#  res_format2l=' -> %-17.17s: %-50.50s'
+
+    res_format4=' -> %-17.17s: %-13.13s  (%-20.20s)  [%-40.40s]'
+    res_format3=' -> %-17.17s: %-13.13s  (%-20.20s)'
+   res_format3e=' -> %-17.17s: %-41.41s  (%-20.20s)'
+   res_format3l=' -> %-17.17s: %-13.13s  (%-27.27s)'
+    res_format2=' -> %-17.17s: %-13.13s'
+   res_format2l=' -> %-17.17s: %-51.51s'
+
+                           # Strings for where the option value was obtained
+          S_idevrc="~/.idevrc"
+       S_Qdefault="queue default"
+   S_idev_default="idev  default"
+       S_cmd_line="cmd line:"
+          S_space=" "
+    S_reservation="reservation"
+#RESOURCE SELECTION  end
+
+                             # RES System listing
+res_list[${pr_no_sys}]=`printf "$res_format2"  "System"          "$MY_SYS"`
+
+
+#  TRAP Function.  Deletes job on exit of this script
 function ctrl_c() {
-                         #Job submitted, and job id available.
+                         #               Job submitted, and job id available.
         if [[ "x$job_submitted" = "xyes" && "x$job_id" != "xnone" ]]; then
-#                                        Keeps from calling qdel twice. (why twice?)
+
+                         #               Keeps from calling qdel twice. (why twice?)
            if [[ $did_exit == no ]]; then
+
              echo "Cleaning up: submitted job ($job_submitted) removing job $job_id."
- 
-             if [[ $MY_SYS == "stampede" || $MY_SYS == "ls5" || $MY_SYS == "hikari" || $MY_SYS == "knl" || $MY_SYS == "wrangler" ]]; then
-                scancel $job_id
-             else
-                qdel    $job_id
-             fi
+             scancel $job_id
+
            fi
            did_exit=yes
            exit;
@@ -164,10 +253,73 @@ function ctrl_c() {
         else
                          #User control-c'd out before job launched.
            echo -e "$exit_msg"
-           echo " --  idev: no session created, gracefully exiting..."
+           echo -e " ->  idev: no session created, gracefully exiting...\n"
            exit
         fi
-}
+} # END TRAP Function
+
+
+# SELECTION Function
+select_one(){
+   # select_values          = array of values for selection
+
+   # select_type            = string (e.g. queue, account, wait_or_exit,...)
+   # selected_value_default = value  (default value if response is return)
+   # selected_no_default    =  #     (number in the array for the default value, 1,...N)
+
+       select_count=${#select_values[@]}
+
+   do_select=yes
+   while [[ $do_select == yes ]]; do
+
+       do_select=no                       #default, stop after 1 iteration
+
+       echo " -> $select_type options are: "; echo ""
+
+                #list options
+       count=1;
+       for i in ${select_values[@]}; do
+         #echo "       $count $i"
+          echo -e -n "      \033[1;36m$count"; echo -e -n '\033[0m'; echo " $i"
+          (( count++ ))
+       done
+
+                #request a response
+       if [[ $selected_no_default = "none" ]]; then
+          echo -n  " -> Please type a NUMBER (no default for a return): ";
+       else
+          echo -n  " -> Please type a NUMBER or hit return (default=$selected_no_default): ";
+       fi
+       read    selected_no
+       if [[ "$selected_no" == "" ]]; then selected_no=$selected_no_default; fi
+
+                #determine what to do
+
+                                              #re-do if inapproriate response
+       if ! [[ $selected_no =~ ^[1-9]+$  &&  (($selected_no -le $select_count)) ]]; then
+         if [[ "$selected_no" == "none" ]]; then
+            echo ""; echo -e -n " -> \033[1;36mThat was not a valid response.";  echo -e -n '\033[0m'
+            echo " You hit the return key. Try again.";  echo ""
+         else
+            echo ""; echo -e -n " -> \033[1;36mThat was not a valid response.";  echo -e -n '\033[0m'
+            echo " You typed \"$selected_no\". Try again.";  echo ""
+         fi
+         do_select=yes
+         continue
+       fi
+
+                                              #list the valid response
+       selected_value=${select_values[ $(($selected_no-1)) ]}
+      #echo " -> $selected_value is the \"$select_type\" value you selected."
+       echo ""; echo "      $selected_value is the \"$select_type\" value you selected."; echo ""
+
+                                              #exit here if directed to
+       [[ $selected_value == exit ]] && exit
+
+                                              #continue on if not exit
+   done
+} # END SELECTION Function
+
 
 #               Do the non-installation sensitive options here.
 
@@ -199,23 +351,77 @@ function ctrl_c() {
 #                                 v    v
 # declare -A mac_sharehome_id=( [knl]=knl )  # Implement this when ls5 goes to bash 4.x
 
+
+#######################################################beg check for rogue (old) versions
+
+                #If a production idev is in /usr/bin, check it against the version being used.
+                #Ask user to use most recent verion (production), if reasonable.
+  if [[ -f /usr/bin/idev && -z ${IDEV_SHUTDOWN_VERSION_CHECK} ]]; then
+                  #Get the production idev version in /usr/bin (that might be $0, "myself")
+     prod_IDEV_VER=`grep IDEV_VER= /usr/bin/idev | sed s/IDEV_VER=// | sed s'/ //'g`
+  
+                  #squash the three numbers together in units of 10000, 100 and 1
+                  # e.g. 1.5.2 becomes 1*10000 + 5*100 + 2 (assumes none of the version elements will exceed 99.
+     prod_cat_IDEV_VER=`echo $prod_IDEV_VER | awk '{split($0,A,".")} END{printf("%s",A[1]*10000+A[2]*100+A[3]) }'`
+     this_cat_IDEV_VER=`echo      $IDEV_VER | awk '{split($0,A,".")} END{printf("%s",A[1]*10000+A[2]*100+A[3]) }'`
+                  # Now, compare the squashed version numbers, and write notice if this code is out of date.
+     if [[ $prod_cat_IDEV_VER > $this_cat_IDEV_VER ]]; then
+        echo ""
+        echo " $IDEV_SYM ***** NOTIFICATION  ***** NOTIFICATION  ***** NOTIFICATION ***** NOTIFICATION  *****"
+        echo " $IDEV_SYM The production idev version ($prod_IDEV_VER) is newer than the version you are using ($IDEV_VER)."
+        echo " $IDEV_SYM You might want/need to change over to the newest verion."
+        echo ""
+     fi
+  fi
+
+#######################################################end check for rogue (old) versions
+
 #                 Defaults
   MY_MINUTES=30
   MY_hhmmss_TIME=00:${MY_MINUTES}:00
   MY_H_RT="h_rt=$MY_hhmmss_TIME"
 #                                 Stampede1 requires a default set here
 #                                 For other systems it is set in SYSTEM case selection below.
+#TODO
+    # if there is a development queue, use that
+    #    However if wrangler, hikari, knl or ls5-bigmem
+#TODO
+
+#######################################################beg system options
+
   MY_QUEUE=development
-  [[ $MY_SYS == "wrangler" ]]  && MY_QUEUE=debug
-  [[ $MY_SYS == "hikari"   ]]  && MY_QUEUE=normal
-  [[ $MY_SYS == "knl"      ]]  && MY_QUEUE=normal
+  [[ $MY_SYS == "wrangler"  ]]  && MY_QUEUE=debug
+  [[ $MY_SYS == "hikari"    ]]  && MY_QUEUE=normal
+  [[ $MY_SYS == "knl"       ]]  && MY_QUEUE=normal
+  [[ $MY_SYS == "stampede2" ]]  && MY_QUEUE=development
   [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
+
+#######################################################end system options
+
+
+# Don't allow execution on compute nodes!
+#                                          If on compute node, /tmp/idev_$USER... exists.
+
+ls /tmp/idev_${USER}_bash_env.* >&/dev/null
+if [[ $? == 0  ]]; then
+   echo -e "\n -> ERROR:  You are trying to run idev on a compute node."
+   echo -e   " ->         Execution of idev is only allowed on a login node."
+   exit_msg=""
+   exit 9
+fi
+
 
   RESERVATION_CONTROL="NO_OPTION"
   RESERVATION_NAME=""
   MY_RESERVATION=""
   RESERVATION_USE=no
   MY_EMAIL=""
+  opt_NODE_count=0
+  opt_TASK_count=0
+  opt_nodes=unset
+  opt_tasks_per_node=unset
+  opt_total_tasks=unset
+  my_default_n=unset
 
 JOB_NAME=idv${my_pid:(-5)}
 monitor_sleep=4
@@ -230,7 +436,6 @@ job_sleep=$(( MY_MINUTES * 60 ))
       IDEV_ACCOUNT="-A  willpromptyou"
         MY_ACCOUNT=none
      check_project=yes
-         nodes_set=no
    total_tasks_set=no
         queue_arch=standard
    list_node_queue=no
@@ -240,7 +445,13 @@ job_sleep=$(( MY_MINUTES * 60 ))
                                       #Make squeue look identical for ls5/stampede
    squeue_opts='-o %.18i %.15P %.9j %.8u %.2t %.10M %.6D %R' 
     MY_ADDRESS=none
-
+    MY_TASKS_PER_NODE=unset
+    MY_TOTAL_TASKS=unset
+    MY_NODES=1
+    IDEV_TASKS_PER_NODE=""
+    IDEV_TOTAL_TASKS=""
+    IDEV_SLURM_ARGS=""
+    idevrc_tpn=unset
 
 ############################################beg  .idevrc options
 
@@ -257,6 +468,10 @@ job_sleep=$(( MY_MINUTES * 60 ))
  [[ $TACC_SLURM_CONF =~ _LG ]] && MID=_largemem
 
 
+                             # RES resource file listing
+res_list[${pr_no_rc}]=` printf "$res_format2"  "Defaults file"   "$S_idevrc"`
+
+
   if [ -e $HOME/.idevrc ]; then
 #                                                 Get Project Name
      grep -Pq "idev_project${MID}\s" $HOME/.idevrc
@@ -270,15 +485,13 @@ job_sleep=$(( MY_MINUTES * 60 ))
             echo "and execute idev again."
             exit 1
         fi
-           echo ""
-           echo "Defaults file    : ~/.idevrc"
            check_project=no
         if [[ $MY_ACCOUNT =~ use_default ]]; then
            IDEV_ACCOUNT=" "
-           echo "Project          : $MY_ACCOUNT "
+           res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$MY_ACCOUNT"         "SLURM default"`
         else
            IDEV_ACCOUNT="-A  $MY_ACCOUNT"
-           echo "Default  project : $MY_ACCOUNT"
+           res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$MY_ACCOUNT"         "$S_idevrc"`
         fi
      fi
 
@@ -294,21 +507,22 @@ job_sleep=$(( MY_MINUTES * 60 ))
                    if [[ "$MY_H_RT" =~ $regex ]]; then
                      secs=$((${BASH_REMATCH[1]}*3600+${BASH_REMATCH[2]}*60+${BASH_REMATCH[3]}))
                    else
-                     echo "ERROR:  default time syntax: time <#>."
-                     echo "        Value found: \"$MY_TIME\""
+                     echo " ->ERROR:  default time syntax: time <#>."
+                     echo "           Value found: \"$MY_TIME\""
                      exit
                    fi
                    MY_MINUTES=$(( secs / 60 ))
                    job_sleep=$secs
+                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (hh:mm:ss)" "$MY_TIME"            "$S_idevrc"` 
           else
                    MY_MINUTES=$MY_TIME
-                            MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
-                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+                            MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accepts more than 2 digits in this field.
+                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accepts more than 2 digits in this field.
                    job_sleep=$(( $MY_MINUTES * 60 ))
+                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (min)" "$MY_TIME"            "$S_idevrc"` 
           fi
-          echo "Default  time    : $MY_MINUTES min."
      else
-          echo "Default  time    : $MY_MINUTES min."
+           res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (minutes)"  "$MY_MINUTES"         "$S_idev_default"` 
 
      fi
 
@@ -320,12 +534,13 @@ job_sleep=$(( MY_MINUTES * 60 ))
         [[ $MY_QUEUE =~ gpu    ]] && queue_arch=gpu
         [[ $MY_QUEUE =~ vis    ]] && queue_arch=gpu
         [[ $MY_QUEUE =~ serial ]] && queue_arch=serial
-        echo "Default  queue   : $MY_QUEUE"
+        res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_idevrc"`
      else
         if [[ $MY_QUEUE == normal && $MID == _knl ]]; then
-           echo "Default  queue   : $MY_QUEUE      (If long wait, use development queue.)"
+           caution="If long wait, use development queue." 
+           res_list[${pr_no_que}]=`printf "$res_format4"  "Queue"           "$MY_QUEUE"           "$S_idev_default"  "$caution" `  
         else
-           echo "Default  queue   : $MY_QUEUE"
+           res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_idev_default"`
         fi
      fi
 
@@ -335,7 +550,8 @@ job_sleep=$(( MY_MINUTES * 60 ))
         IDEV_RM_ENV=`grep -P "idev_rm_env${MID}\s" $HOME/.idevrc | sed "s/idev_rm_env${MID}\s//"`
         IDEV_RM_ENV="${IDEV_RM_ENV%\\n}"               # get rid of return
         IDEV_RM_ENV=`echo "$IDEV_RM_ENV" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
-        echo "Removed env vars : $IDEV_RM_ENV"
+###FIX to accommodate string size of variables 
+         res_list[${pr_no_rv}]=` printf "$res_format3"  "Removed env vars" "$IDEV_RM_ENV"       "$S_idevrc"`
         export IDEV_RM_ENV
      fi
 
@@ -345,8 +561,27 @@ job_sleep=$(( MY_MINUTES * 60 ))
         MY_ADDRESS="${MY_ADDRESS%\\n}"               # get rid of return
         MY_ADDRESS=`echo "$MY_ADDRESS" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
         export MY_ADDRESS
+
+        res_format=$res_format3e
+        nchars=${#MY_ADDRESS}
+        [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+        res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
      fi
 
+
+                        # Look for ALL idev_tpn_<queue name>_<this machine> pairs
+                        # Create array.  If size not zero and successful grep,  change idevrc_tpn to "set"
+     if [[ x${MID} = x ]]; then
+        Q_TpN_array=( `grep  -P 'idev_tpn_[^_]*\s' $HOME/.idevrc` )         # has no SYS suffix
+        grep_status=$?
+     else
+       #Q_TpN_array=( `grep  -P "idev_tpn_[^_]*_${MID}\s" $HOME/.idevrc` )  # has a SYS suffix
+        Q_TpN_array=( `grep  -P "idev_tpn_[^_]*${MID}\s" $HOME/.idevrc` )  # has a SYS suffix
+        grep_status=$?
+     fi
+     #if [[ $grep_status == 0 &&  ${#Q_TpN_array[*]} != 0 ]]; then  # then possibly if set determined below
+     # idevrc_tpn=unset 
+     
   fi
 
 ############################################end  .idevrc options
@@ -410,117 +645,50 @@ monitor_sleep=4
 sleep_after_run_factor=4
 job_sleep=$(( MY_MINUTES * 60 ))
 
-login_sourcing=yes   #use .login/.profile sourcing code for creating batch env
+
+############################################beg system defaults
 
 TOT_TASK_msg=""
+Q="-p"
+MY_PROJECT=""  #CHECK
+export IDEV_QDEL=scancel
+BATCH_SYS=SLURM
+sleep_after_run=7
 
 case $MY_SYS in
 
-   maverick) echo "System           : Maverick"
-             MY_CORES=20;       CpN=20  # Cores/Node
-             MY_TOTAL_TASKS=20; MY_NODES=1
-             MY_PROJECT=""
-             sleep_after_run=7
-             ## -P  vis, data, gpgpu, hpc
-             BATCH_SYS=SLURM
-             Q="-p"
-             MY_QUEUE=gpu
-             IDEV_NODES=""    #Usually not set
-             export IDEV_QDEL=scancel
-             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
+   maverick2)
              DOTHIS=""    #execute cp cmd in job script-- old z85_ script needs this
+             MY_QUEUE=gpu 
              ;;
-   stampede) echo "System           : Stampede"
-             MY_CORES=16;       CpN=16 # Cores/Node
-             MY_TOTAL_TASKS=16; MY_NODES=1
-             MY_PROJECT=""
-             sleep_after_run=7
-             BATCH_SYS=SLURM
-             Q="-p"
-             IDEV_NODES=""    #Usually not set
-             export IDEV_QDEL=scancel
-             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
+
+   stampede)
              DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
              ;;
-    wrangler) echo "System           : Wrangler"
-              MY_CORES=24;       CpN=24 # Cores/Node
-              MY_TOTAL_TASKS=24; MY_NODES=1
-              MY_PROJECT=""
-              sleep_after_run=7
-              BATCH_SYS=SLURM
-              Q="-p"
-              IDEV_NODES=""    #Usually not set
-              export IDEV_QDEL=scancel
-              login_sourcing=by_tacc_etc_profile.d #Let TACC do this
-              ;;
-        ls5) echo "System           : Lonestar"
 
-             if [[ $queue_arch == standard ]]; then
-                MY_CORES=24;       CpN=24 # Cores/Node
-                MY_TOTAL_TASKS=24; MY_NODES=1
-             fi
+   stampede2)
+             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
+             ;;
 
-             if [[ $queue_arch == gpu ]]; then
-                MY_CORES=10;       CpN=10 # Cores/Node
-                MY_TOTAL_TASKS=10; MY_NODES=1
-             fi
+#   wrangler)
+#             nothing here
+#             ;;
 
-             if [[ $queue_arch == serial ]]; then
-                MY_WAY=1;          MY_CORES=1;  CpN=24 # Cores/Node
-                MY_TOTAL_TASKS=1;  MY_NODES=1
-             fi
-
+        ls5)
              if [[ $TACC_SLURM_CONF =~ _LG ]]; then
-                MY_CORES=32;       CpN=32 # Cores/Node
-                MY_TOTAL_TASKS=32; MY_NODES=1
                 ls5_lrgmem=on
-             fi
-
-             MY_PROJECT=""
-             sleep_after_run=7
-             BATCH_SYS=SLURM
-             Q="-p"
-             IDEV_NODES=""    #Usually not set
-             export IDEV_QDEL=scancel
-             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
-
-             MY_QUEUE=development
-             if [[ $TACC_SLURM_CONF =~ _LG ]]; then
                 MY_QUEUE=largemem512GB
              fi
-
              ;;
-     hikari) echo "System           : Hikari"
 
-             MY_CORES=24;       CpN=24 # Cores/Node
-             MY_TOTAL_TASKS=24; MY_NODES=1
+#    hikari)
+#            nothing here
+#            ;;
 
-             MY_PROJECT=""
-             sleep_after_run=7
-             BATCH_SYS=SLURM
-             Q="-p"
-             IDEV_NODES=""    #Usually not set
-             export IDEV_QDEL=scancel
-             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
-
-             MY_QUEUE=normal
-             ;;
-        knl) echo "System           : stampede-knl"
-
-             MY_TOTAL_TASKS=4;  MY_NODES=1
-             MY_CORES=68;       CpN=68 # Cores/Node
-
-             TOT_TASK_msg="       (e.g. use -n 68 -N 1 for 1 MPI proc/core)"
-
-             MY_PROJECT=""
+        knl)
              sleep_after_run=5
-             BATCH_SYS=SLURM
-             Q="-p"
-             IDEV_NODES=""    #Usually not set
-             export IDEV_QDEL=scancel
-             login_sourcing=by_tacc_etc_profile.d #Let TACC do this
 
-             MY_QUEUE=normal
+             TOT_TASK_msg="       (e.g. use -N 1 --tasks-per-node 68 for 1 MPI proc/core)"
              export IDEV_LOGIN_SOURCING=USER  #remove for production version
              ;;
 
@@ -529,17 +697,15 @@ case $MY_SYS in
              ;;
 esac
 
-     echo "Default tot tasks: -n $MY_TOTAL_TASKS $TOT_TASK_msg"
-     echo "Default nodes    : -N $MY_NODES"
-     echo "  end of defaults: ----------------------------------------------"
+############################################end system defaults
 
-######
 
+############################################beg idev options
 do_exit=no
 check_project=yes
 cmd_args=$@
 
-#     Get command line arguments -- they override everything
+#   #cmd Get command line arguments -- they override everything
 OPT_ERR=0
 
 while (( "$#" )); do
@@ -576,16 +742,16 @@ while (( "$#" )); do
                   echo "  -m     minutes            sets time in minutes (default: $MY_MINUTES)"
                   echo "  -n     total_tasks        Total number of tasks"
                   echo "  -N     nodes              Number of nodes"
-if [[ $MY_SYS == longhorn ]]; then
-                  echo "  -P     project_name       project type for Longhorn {vis, data, gpgpu, or hpc}"
-fi
+                  echo "  -tpn                tpn   Tasks per node"
+                  echo "  --tasks-per-node    tpn   Tasks per of nodes"
+                  echo "  --ntasks-per-node   tpn   Tasks per of nodes"
                   echo "  $Q     queue_name         sets queue to named queue (default: $Q $MY_QUEUE)"
                   echo "  -r                        (no res. name) find and use my ACTIVE reservation (no questions)"
                   echo "  -r     reservation_name   requests use of a specific reservation"
                   echo "  -r     none               idev always automatically looks for reserations"
                   echo "                            and asks you to use an ACTIVE res. none==don't look/ask."
                   echo "                            (use    scontrol show reserations to see reservation details)"
-                  echo "  -e     email_address      notify when job begins, uses idev_email_address in "
+                  echo "  -e     email_address      notify when job begins, uses idev_email_address${MID} in "
                   echo "                            \$HOME/.idevrc if no email_address is supplied."
 
                   echo "  -t     hh:mm:ss           sets time to hh:mm:ss (default: 00:${MY_MINUTES}:00, 30 min.)"
@@ -593,6 +759,7 @@ fi
                   echo "  -queues                   lists queues for the system"
                   echo "  -pselect                  presents slurm queue to select from"
                   echo "  -qselect                  presents slurm queue to select from"
+                  echo "  -- <other SLURM options>  MUST occur after ALL idev options (above and below)"
 
                   echo ""
                   echo "  -help [help, --help, -h]  displays (this) help message"
@@ -601,13 +768,14 @@ fi
                   echo "  Syntax and Examples:"
                   echo "       Syn: idev     (defaults: 1 node, 16 tasks, $MY_MINUTES min., default account.)"
                   echo "       Syn: idev  [-help | -v | -uninstall] "
-                  echo "       Syn  idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
+                  echo "       Syn: idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
                   echo "                  [-n tasks]  [-N nodes  -n tasks]  "
                   echo ""
-                  echo "       ex4  idev"
-                  echo "       ex5  idev -help"
-                  echo "       ex1  idev -p development -m 90       -A A-ccvis        -n 16"
-                  echo "       ex2  idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -n 16 "
+                  echo "       ex1: idev"
+                  echo "       ex2: idev -help"
+                  echo "       ex3: idev -p development -m 90       -A A-ccvis        -n 16"
+                  echo "       ex4: idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -n 16 "
+                  echo "       ex5: idev -p normal -- -w c560-102 -v"
 
                   echo ""
                   echo "Idev ssh's to compute nodes with the -Y option to allow X forwarding for debugging."
@@ -643,32 +811,61 @@ fi
 
    if [[ x$1 == x-n ]]; then
                   known_option=yes
+                  opt_tasks=set
+                  opt_total_tasks=set
+                  opt_TASK_count=$(( $opt_TASK_count + 1 ))
                   shift; MY_TOTAL_TASKS=$1;  total_tasks_set=yes
-                  echo "Using total tasks: -n $MY_TOTAL_TASKS"
+                   res_list[${pr_no_n}]=`  printf "$res_format3"  "Total tasks"     "$MY_TOTAL_TASKS"     "$S_cmd_line -n"`
    fi
+
+   if [[ x$1 == x--tasks-per-node || x$1 == x--ntasks-per-node ]]; then
+                  known_option=yes
+                  opt_tasks=set
+                  hold=$1
+                                      #only count -tpn or --tasks-per-node once
+                  [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
+                  shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
+                  res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tasks-per-node"`
+                  [[ x$hold == x--tasks-per-node   ]] && tpn_type="--tasks-per-node"
+                  [[ x$hold == x--ntasks-per-node  ]] && tpn_type="--ntasks-per-node"
+   fi
+
+   if [[ x$1 == x-tpn ]]; then
+                  known_option=yes
+                  opt_tasks=set
+                                      #only count -tpn or --tasks-per-node once
+                  [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
+                  shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
+                  res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tpn"`
+                  tpn_type="-tpn"
+   fi
+
 
    if [[ x$1 == x-N ]]; then
                   known_option=yes
-                  shift; MY_NODES=$1; IDEV_NODES="-N $1"; nodes_set=yes
-                  echo "Using nodes      : -N $MY_NODES"
+                  opt_N=set
+                 #opt_NODE_count=$(( $opt_NODE_count + 1 ))
+                  shift; MY_NODES=$1; opt_nodes=set;
+                  opt_NODE_count=$1
+                  res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_cmd_line -N"`
    fi
 
-
-   if [[ x$1 == x-pe ]]; then
+   if [[ x$1 == x-p ]]; then
                   known_option=yes
-                   echo -e "\n ERROR: **The -pe option is not allowed on $MY_SYS."
-                   echo -e "     It is not a valid $BATCH_SYS option."
-                   echo -e "     See options, execute: idev -help"
-                   do_exit=yes; OPT_ERR=1
+                   shift; MY_QUEUE=$1
+                   CMDLINE_QUEUE=$MY_QUEUE
+                   queue_from=cmdline
+                  res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -p"`
 
    fi
+
 
    if [[ x$1 == x-q ]]; then
                   known_option=yes
                    shift; MY_QUEUE=$1
-                   echo "Using queue      : -p $MY_QUEUE"
                    CMDLINE_QUEUE=$MY_QUEUE
                    queue_from=cmdline
+                   res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -q"` 
 
    fi
 
@@ -687,20 +884,12 @@ fi
                   qselect=yes
    fi
 
-   if [[ x$1 == x-p ]]; then
-                  known_option=yes
-                   shift; MY_QUEUE=$1
-                   echo "Using queue      : -p $MY_QUEUE"
-                   CMDLINE_QUEUE=$MY_QUEUE
-                   queue_from=cmdline
-
-   fi
-
    if [[ x$1 == x-A ]]; then
                   known_option=yes
                    shift; IDEV_ACCOUNT="-A  $1"
+                   account=$1
                    check_project=no
-                   echo "Using Project    : $IDEV_ACCOUNT"
+                   res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$account"         "$S_cmd_line -A"`
 
    fi
 
@@ -711,13 +900,13 @@ fi
                    if [[ "$MY_H_RT" =~ $regex ]]; then
                      secs=$((${BASH_REMATCH[1]}*3600+${BASH_REMATCH[2]}*60+${BASH_REMATCH[3]}))
                    else
-                     echo "ERROR:  h_rt (syntax hr:min:sec) requires value for hr, min and sec entry."
-                     echo "        Value found: \"$MY_H_RT\""
+                     echo "->ERROR:  h_rt (syntax hr:min:sec) requires value for hr, min and sec entry."
+                     echo "          Value found: \"$MY_H_RT\""
                      exit
                    fi
                    job_sleep=$secs
                    MY_hhmmss_TIME=$1
-                   echo "time (hh:mm:ss)  : -t $MY_hhmmss_TIME"
+                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (hh:mm:ss)" "$MY_hhmmss_TIME"            "$S_cmd_line -t"`
    fi
 
    if [[ x$1 == x-m ]]; then
@@ -725,8 +914,8 @@ fi
                    shift; MY_MINUTES=$1
                           MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
                           MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
-                   echo "time (minutes)   : -t $MY_hhmmss_TIME"
                    job_sleep=$(( $MY_MINUTES * 60 ))
+                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (minutes)"  "$MY_MINUTES"         "$S_cmd_line -m"`
    fi
 
    if [[ x$1 == x-rank0 || x$1 == x--rank0 ]]; then
@@ -745,25 +934,25 @@ fi
                       # We are at the end of the line without a 
                       # reservation name-- meaning we will look for any reservation.
                       RESERVATION_CONTROL="FIND_IT"
-                      echo "Reservation      : Will search and request it for you."
+                      echo " -> Reservation      : Will search and request it for you."
                    else
                       if [[ x$2 =~ "x-" ]]; then
                          # We have found the next option.  No reservation name
                          # means we look for the reservation.
                          RESERVATION_CONTROL="FIND_IT"
-                         echo "Reservation      : Will find it for you."
+                         echo " -> Reservation      : Will find it for you."
                       else
                          # Found reservation request with name
                          shift
                          if [[ $1 =~ none ]]; then
                             RESERVATION_CONTROL="NONE"
                             MY_RESERVATION=""
-                            echo "Reservation      : $1"
+                            echo " -> Reservation      : $1"
                          else
                             RESERVATION_CONTROL="USER_SET"
                             RESERVATION_NAME=$1
                             MY_RESERVATION="--reservation=$1"
-                            echo "Reservation      : $1"
+                            echo " -> Reservation      : $1"
                             MY_RESERVATION="#SBATCH $MY_RESERVATION"
                          fi
                       fi
@@ -772,56 +961,79 @@ fi
 
    fi
 
-   if [[ x$1 == x-P ]]; then
-                  known_option=yes
-                   if [[ $MY_SYS == "longhorn" ]] ; then
-                     shift; MY_PROJECT="-P  $1"
-                     echo "Longhorn project type : $MY_PROJECT"
-                   else
-                     echo -e "\n ERROR: **The -P option is only allowed on Longhorn."
-                     echo -e "          To see options, execute: idev -help."
-                     do_exit=yes; OPT_ERR=1
-                   fi
-   fi
 
    if [[ x$1 == x-e ]]; then
+
                   known_option=yes
-                   echo "Job begin email  :"
 
              #---------EMAIL
                    # Check here for command option email_address
+                   # case 1  at end (with or without idevrc address
                    if [[ "$#" == 1 ]]; then   # At end of arg list wo email addr: Must Use Default, if available
                       if [[ $MY_ADDRESS == "none" ]] ; then
-                         echo "ERROR: -e option requires IP address (or email address entry in \$HOME/.idevrc)"
+
+                         echo " ->Cmd line: $0 $cmd_args"
+                         echo " ->ERROR: -e option requires email address on command line of form <me>@<domain.x>."
+                         echo "          (However, an address is not required if one is found in \$HOME/.idevrc. *)"
+                         echo "          (* add new line of form:  idev_email_address${MID} <me>@<domain.x> )"
+
                          do_exit=yes; OPT_ERR=1
                          break # stop parsing
                       fi
-                      echo "Email address    : $MY_ADDRESS (default)"
+
+                      res_format=$res_format3e
+                      nchars=${#MY_ADDRESS}
+                      [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+                     #res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
+                      res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
+
                       using_rc_email_address=yes
              
+                   # case 2  not at end (with or without idevrc address)
                    else
-                      shift  #Check for email address
+                      
+                      shift  
+                             #Check for email address
+
+                             #line has email address
                       if [[ "$1" =~ @ ]]; then
                          MY_ADDRESS="$1"
-                         echo "Email address    : $MY_ADDRESS"
                          using_rc_email_address=no
+
+                         res_format=$res_format3e
+                         nchars=${#MY_ADDRESS}
+                         [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+                         res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
+
+                             #line does not have email address
                       else
                          set -- $1 "$@"   #Not an email address, unshift
              
                          if [[ $MY_ADDRESS == "none" ]] ; then  #OK no cmd line email -- Must have email from .idevrc
-                            echo "ERROR: -e option requires IP address (or email address entry in \$HOME/.idevrc)"
+
+                            echo " ->Cmd line: $0 $cmd_args"
+                            echo " ->ERROR: -e option requires email address on command line of form <me>@<domain.x>."
+                            echo "          (However, an address is not required if one is found in \$HOME/.idevrc. *)"
+                            echo "          (* add new line of form:  idev_email_address${MID} <me>@<domain.x> )"
+
                             do_exit=yes; OPT_ERR=1
                             break # stop parsing
                          fi
-                         echo "Email address    : $MY_ADDRESS (default)"
                          using_rc_email_address=yes
+
+#ISN't this covered above
+                         res_format=$res_format3e
+                         nchars=${#MY_ADDRESS}
+                         [[ $nchars -gt 40 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+                         res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
+
                       fi
                    fi      
 
                    if ! [[ $MY_ADDRESS =~ @ ]]; then
-                     echo -e "\n ERROR: ** Detected improper email address -- no @ found."
-                     echo -e "               Found email address $MY_ADDRESS."
-                     echo -e "               Check command line or ~/.idevrc idev_email_address value."
+                     echo -e "\n ->ERROR: ** Detected improper email address -- no @ found."
+                     echo -e "                 Found email address $MY_ADDRESS."
+                     echo -e "                 Check command line or ~/.idevrc idev_email_address value."
                      if [[ $using_rc_email_address == no ]]; then
                        echo -e "               An email ADDRESS is REQUIRED with the -e option"
                        echo -e "               (unless you specify one in ~/.idevrc; see idev -help)."
@@ -833,10 +1045,38 @@ fi
                    MY_EMAIL="#SBATCH --mail-type=BEGIN --mail-user=$MY_ADDRESS"
    fi
 
+   if [[ x$1 == x--* ]]; then
+                  known_option=yes
+                   #
+                                      #Make sure user does "-- --mem_bind= ..."
+                                      #rather than         "--mem_bind= ..."
+                                      #ALL arguments after -- are handed directly to SLURM
+                  if [[ x$1 != x-- ]]; then
+                     echo " ->ERROR: Found $1"
+                     echo "          SLURM Options must be preceeded by \"--\" option specifier"
+                     break
+                     do_exit=yes; OPT_ERR=2
+                  fi
+
+                  shift
+
+                  slurm_options="$*"
+                  IDEV_SLURM_ARGS="#SBATCH $slurm_options"
+                  nchars=${#slurm_options}
+                  res_format=$res_format3
+                 #[[ $nchars -gt 40 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+                 #res_list[${pr_no_sb}]=` printf "$res_format3"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
+                  [[ $nchars -gt 15 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+                  res_list[${pr_no_sb}]=` printf "$res_format"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
+
+                  break  # stop parsing  All remaining arguments go directly into #SBATCH
+
+   fi
+
 #  last check!
    if [[ $known_option == "no" ]]; then
-                     echo -e "\n ERROR: **The $1 option is not know."
-                     echo -e "          To see options, execute: idev -help."
+                     echo -e "\n ->ERROR: **The $1 option is not known."
+                     echo -e "            To see options, execute: idev -help."
                      do_exit=yes; OPT_ERR=2
 
    fi
@@ -845,30 +1085,12 @@ fi
 
 done
 
+############################################end idev options
 
-############################################beg  Dependent options
-
- [[ $MY_QUEUE =~ gpu    ]] && queue_arch=gpu
- [[ $MY_QUEUE =~ vis    ]] && queue_arch=gpu
- [[ $MY_QUEUE =~ serial ]] && queue_arch=serial
-
-
-if [ x$MY_SYS = "xls5" ] &&  
-   [ x$queue_arch = "xgpu" ] && 
-   ( [ x$total_tasks_set = "xno" -a x$nodes_set = "xno" ]); then
-   MY_WAY=10;         MY_CORES=10; CpN=10 # Cores/Node
-   MY_TOTAL_TASKS=10; MY_NODES=1;  CpN=10 # Cores/Node
-fi
-
-if [ x$MY_SYS = "xls5" ] &&  
-   [ x$queue_arch = "xserial" ] && 
-   ( [ x$total_tasks_set = "xno" -a x$nodes_set = "xno" ]); then
-   MY_WAY=1;          MY_CORES=1;  CpN=24 # Cores/Node
-   MY_TOTAL_TASKS=1;  MY_NODES=1;  CpN=24 # Cores/Node
-fi
-
+############################################beg queue select
 ###SELECT QUEUE vvv
 
+if [[ $qselect == yes ]]; then
  # Get list of queues -- this should be done wo a file
 
   sinfo -h --format="%.15R" >  $HOME/.idev${MID}_sinfo
@@ -909,9 +1131,8 @@ fi
      ((i++))
   done
 
-
   #ACTUAL QUEUE SELECTION
-  if [[ $qselect == yes ]]; then
+# if [[ $qselect == yes ]]; then
        echo "Please select the NUMBER of the queue you want to use.\n";
 
        count=1;
@@ -935,31 +1156,204 @@ fi
        fi
 
        MY_QUEUE=${node_queue[ $(($my_queue-1)) ]}
-       echo "--> $MY_QUEUE is the queue you selected."
-  fi
+       echo " -> $MY_QUEUE is the queue you selected."
+fi
+############################################end queue select
 
-###SELECT QUEUE ^^^
+############################################beg Dependent options
+   # GET BASIC INFO (queue specific): Sockets Cores/Socket HardWare Threads per Core
+  
+             #Now that the queue is known, determine its Threads per Node (TpN)
+             #Queue_Sockets_CoresPerSocket_HardwareThreads
+   declare -a Q_S_CpS_HWT=(`sinfo -p $MY_QUEUE -o "%P %X %Y %Z" | grep -P '^'$MY_QUEUE'[\s\*]'`)
+
+   if [[ ${#Q_S_CpS_HWT[*]} == 0 ]]; then
+      echo " ->Cmd line: $0 $cmd_args"
+      echo " ->ERROR: The $MY_QUEUE queue is not known on this system."
+      exit
+   fi
+  
+             #Make the MPI Tasks per Node equal to the Cores per Node
+   CpN=$(( ${Q_S_CpS_HWT[1]} * ${Q_S_CpS_HWT[2]} ))
+   TpN=$CpN
+   HWTpC=${Q_S_CpS_HWT[3]}
+   PpN=$(( $CpN * $HWTpC ))
+
+  ############################################beg  DEFINE function
 
 
-if [ x$MY_SYS = "xls5" ] &&  
-   [ x$queue_arch = "xserial" ] && 
-   [ x$nodes_set  = "xyes"    ]; then
-      echo " "
-      echo " ERROR: -N resource option MUST NOT BE USED in $MY_QUEUE queue."
-      echo "        This is a serial queue, only -n 1 should be specified."
-      do_exit=yes; OPT_ERR=1
+  ask_queue_idevrc_tpn()
+  {
+     idevrc_queue_tpn=unset 
+     while [[ $idevrc_queue_tpn == unset ]]; do
+        # FIND OUT WHAT THE USER WANTS
+        echo ""
+        echo    " -> Compute nodes in the $MY_QUEUE queue of the $MY_SYS system have HyperThreading turned on."
+        echo    " -> Normal HPC Applications will use no more than $CpN tasks per node (=cores/node)."
+        echo    " -> Few Apps use all HyperThreads [$HWTpC (HWthreads/Core) x $CpN (Cores/Node) = $PpN )."
+        echo -n " -> FOR IDEV USE: specify the default tasks/per node for this queue." 
+#       echo    "($CpN suggested)."
+        echo -e "\033[1;36m($CpN suggested)"; echo -e -n '\033[0m'
+        if [[ $MY_SYS == knl ]]; then
+        echo    " -> For KNC or KNL you might want to use less than $CpN tasks/node (e.g. 4, 8, ...)."
+        fi
+  
+        # FIND OUT WHAT THE USER WANTS
+         echo -n "Please type the tasks per node and hit return: "
+         read  my_tpn
+         if [[  $my_tpn =~ ^[0-9]+$ &&  $my_tpn -gt 0  &&  $my_tpn -lt 273  ]]; then
+            idevrc_queue_tpn=$my_tpn
+         else
+            if [[  x$my_tpn == x  ]]; then
+              idevrc_queue_tpn=$CpN
+            else
+              echo "That is not a number between 1-272."
+              echo "Please enter a valid number."
+            fi
+         fi
+
+         echo " -> $idevrc_queue_tpn is the number of tasks per node selected for the $MY_QUEUE queue."
+         echo "idev_tpn_${MY_QUEUE}${MID} ${idevrc_queue_tpn}" >> $HOME/.idevrc
+
+       done
+       idevrc_tpn=$idevrc_queue_tpn
+  }
+
+  ############################################end  DEFINE function
+
+if [[ ${#Q_TpN_array[*]} != 0 ]]; then
+  for i in ${!Q_TpN_array[*]} ; do
+    [[ ${Q_TpN_array[$i]} =~ idev_tpn_${MY_QUEUE}$MID ]] && idevrc_tpn=${Q_TpN_array[ $((i+1)) ]}
+  done
+fi
+# idevrc_tpn may still be "unset" here
+
+
+############################################beg  tpn logic
+
+# TOTAL TASKS and NUMBER of NODES
+
+#case 1-3
+tpn_set_by=unset
+                           #DEFAULT MY_NODES=1
+ if [[ $opt_NODE_count == 0 && $opt_TASK_count == 0 ]]; then
+[[ -n $IDEV ]] &&  echo "case 1-3 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   MY_NODES=1
+   res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_idev_default"`
+
+   if [[ $idevrc_tpn != unset ]]; then
+     IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+     MY_TASKS_PER_NODE="$idevrc_tpn"
+     tpn_set_by="$S_idevrc"
+   else
+     if [[ $HWTpC -eq 1 ]]; then   
+        IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
+        MY_TASKS_PER_NODE="$CpN"
+        tpn_set_by="Queue default"
+     else
+        if [[ $idevrc_tpn == unset ]]; then
+          ask_queue_idevrc_tpn
+        fi 
+
+        IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+        MY_TASKS_PER_NODE="$idevrc_tpn"
+        tpn_set_by="$S_idevrc"
+     fi
+
+   fi
+ fi
+
+#case 4
+ if [[ $opt_NODE_count ==  0 && $opt_TASK_count >  0 ]]; then
+[[ -n $IDEV ]] && echo "case 4 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   echo " ->Cmd line: $0 $cmd_args"
+   echo " ->ERROR: If total tasks (-n) and/or tasks per node (--tasks-per-node or -tpn)"
+   echo "           are specified, -N (nodes) MUST be specified."
+
+   exit
+ fi
+
+#case 5-7
+ if [[ $opt_NODE_count  > 0 && $opt_TASK_count >  0 ]]; then
+[[ -n $IDEV ]] && echo "case 5-7 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+     if [[ $opt_tasks_per_node == set ]]; then
+        IDEV_TASKS_PER_NODE=" --tasks-per-node $MY_TASKS_PER_NODE"
+       #tpn_set_by="$S_cmd_line --tasks-per-node"   #NEEDS LONG FORMAT
+        tpn_set_by="$S_cmd_line $tpn_type"   #NEEDS LONG FORMAT
+     fi
+     if [[ $opt_total_tasks == set ]]; then
+        IDEV_TOTAL_TASKS=" -n $MY_TOTAL_TASKS"
+     else
+        IDEV_TOTAL_TASKS=""
+     fi
+
+ fi
+
+#case 8
+
+ if [[ $opt_NODE_count > 0 && $opt_TASK_count == 0 ]]; then
+[[ -n $IDEV ]] && echo "case 8 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   if [[ $idevrc_tpn != unset ]]; then                       #8
+     MY_TASKS_PER_NODE=$idevrc_tpn
+     IDEV_TASKS_PER_NODE=" --tasks-per-node $idevrc_tpn"
+     tpn_set_by="$S_idevrc"
+   else
+     if [[ $HWTpC -eq 1 ]]; then                             #9
+       MY_TASKS_PER_NODE=$CpN
+       IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
+       tpn_set_by="Queue default"
+     else                                                   #10
+       ask_queue_idevrc_tpn
+       MY_TASKS_PER_NODE=$idevrc_tpn
+       IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+       tpn_set_by="$S_idevrc"
+     fi
+   fi
+ fi
+
+ echo ""
+ if [[ $tpn_set_by != unset ]]; then
+    if [[ $tpn_set_by =~ -- ]];then
+       res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
+    else
+       res_list[${pr_no_tpn}]=`printf "$res_format3"  "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
+    fi
 fi
 
-# SLURM on Stampede & LS5.  If -N is provided, but -n is not, disallow
+############################################end  tpn logic
 
-if [[ $total_tasks_set == no && $nodes_set == yes ]] ; then
+# if [[ ${SYSTEMS_REQUIRE_USER_DEFINE_n[@]} =~ $MY_SYS ]]; then
+# 
+#  if [[ $opt_NODE_count == 0 && $opt_TASK_count ==  0 ]]; then
+#     if [[ ${my_default_n} == unset ]]; then
+# 
+#       # FIND OUT WHAT THE USER WANTS
+#       echo " ==> idev uses 1 $MY_SYS node by default (-N SLURM value)."
+#       echo " ==> Please set the total number of tasks to use with this default (the default -n SLURM value)."
+# 
+#        echo -n "Please type your the default total tasks for a single node and hit return: "
+#        read  my_n
+#      # if [[  $my_n =~ ^[0-9]+$ &&  $my_n > 0  &&  $my_n < 273  ]]; then
+#        if [[  $my_n =~ ^[0-9]+$ &&  $my_n -gt 0  &&  $my_n -lt 273  ]]; then
+#           my_default_n=$my_n
+#           echo " -> $my_default_n is the number of tasks selected."
+#        else
+#           echo "That is not a number between 1-272."
+#           echo "Please enter a valid number."
+#           echo "put while around this statement."
+#        fi
+# 
+#        #echo "idev_n${MID} ${my_default_n}" >> $HOME/.idevrc
+# 
+#        # FIND OUT WHAT THE USER WANTS end
+#     else
+#        MY_TOTAL_TASKS=$my_default_n
+#     fi
+#  fi 
+# fi
 
-   echo -e "\n ERROR: ** -n option (total tasks) is not set. **"
-   echo -e "           When using the -N option, the -n option is required."
-   echo -e "           (Same as batch requirements--See Stampede User Guide.)"
-   do_exit=yes; OPT_ERR=1
 
-fi
+############################################beg  grace queue
 
 #      if grace-serial queue     
 if [[ $MY_QUEUE =~ grace-serial ]]; then
@@ -972,9 +1366,9 @@ if [[ $MY_QUEUE =~ grace-serial ]]; then
             awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
             awk '{print $8}' `
     echo ""
-    echo " ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
+    echo " ->ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
     echo ""
-    echo " You are executing idev again in the $MY_QUEUE queue."
+    echo " ->You are executing idev again in the $MY_QUEUE queue."
     echo "    In this queue only 1 idev interactive job is allowed."
     echo "    You may have multiple windows open to the job (node) for an active"
     echo "    IDEV session by opening a new window on a login node, and SSHing"
@@ -982,22 +1376,14 @@ if [[ $MY_QUEUE =~ grace-serial ]]; then
     echo ""
     echo "                 ssh -Y $using_node   "
     echo ""
-    echo " In a new window you can customize your environment if"
-    echo " you want to work interactively on different projects."  
+    echo " ->In a new window you can customize your environment if"
+    echo "   you want to work interactively on different projects."  
     echo ""
     do_exit=yes; OPT_ERR=2
   fi
 fi
 
-#                            # 512GB and 1TB queues have diff architectures
-if [[ $MY_SYS == ls5 && $MY_QUEUE == largemem1TB &&
-      $total_tasks_set == no && $nodes_set = no ]]; then
-
-   MY_NODES=1 ;  MY_TOTAL_TASKS=48;
-   MY_CORES=48;             CpN=48 # Cores/Node
-   ls5_lrgmem=on
-
-fi
+############################################end  grace queue
 
 ############################################end  Dependent options
 
@@ -1035,13 +1421,23 @@ fi
 #    2+  1          ---                         doit 1 active
 #    3+  0,2...     ---                         Advise
 
-
 RESERVATION_NAME_FOUND=no
 
  if [[ $RESERVATION_CONTROL == NONE ]]; then
     # do nothing-- If the user set it, good luck.
     echo doing_nothing>/dev/null
  else
+
+    res_q_warn=" -> ** WARNING \"-p $MY_QUEUE\" option will be ignored if you accept this reservation.\n"
+    res_q_warn+=" ->             Reservation uses queue of reserved nodes.\n"
+    res_q_warn+=" ->             Respond no if you want to use the $MY_QUEUE queue.\n"
+
+    declare -a active_res_names
+    declare -a active_res_queues
+    declare -a all_res_names
+    declare -a all_res_queues
+    declare -a all_res_status
+
     reservation_string=`$DIR/idev_utils get_reservation $USER`;
     reservation_array=( $reservation_string )
     res_totl=${reservation_array[0]}
@@ -1065,6 +1461,16 @@ RESERVATION_NAME_FOUND=no
              res_name=${reservation_array[  (($i+1)) ]}
              res_queue=${reservation_array[ (($i+2)) ]}
              RESERVATION_USE=yes
+             active_res_names=( "${active_res_names[@]}"  "$res_name")
+             active_res_queues=("${active_res_queues[@]}" "$res_queue")
+           fi
+           if [[ ${reservation_array[$i]} == ACTIVE ]] || [[ ${reservation_array[$i]} == INACTIVE ]] ; then
+             all_res_stat=${reservation_array[$i]}
+             all_res_name=${reservation_array[  (($i+1)) ]}
+             all_res_queue=${reservation_array[ (($i+2)) ]}
+             all_res_names=( "${all_res_names[@]}"  "$all_res_name")
+             all_res_queues=("${all_res_queues[@]}" "$all_res_queue")
+             all_res_status=("${all_res_status[@]}" "$all_res_stat")
            fi
        done
  
@@ -1078,8 +1484,10 @@ RESERVATION_NAME_FOUND=no
              RESERVATION_STATUS=${reservation_array[ (($i-1)) ]}
              RESERVATION_QUEUE=${reservation_array[  (($i+1)) ]}
              if [[ $RESERVATION_STATUS == INACTIVE && $res_actv == 1 ]]; then
-                echo " NOTE: you have requested a INACTIVE reservation ($RESERVATION_NAME)."
-                echo " NOTE: $res_name is your ACTIVE reservation." 
+                echo " -> NOTE: you have requested a INACTIVE reservation ($RESERVATION_NAME)."
+                echo " -> NOTE: $res_name is your ACTIVE reservation." 
+
+                [[ $queue_from == cmdline ]] && echo -e -n "\033[1;36m$res_q_warn"; echo -e -n '\033[0m'
  
                 echo " Do you really want to wait on a INACTIVE reservation?  (suggested answer: no)"
                 echo -n " Enter y/n [default y]: "
@@ -1092,6 +1500,9 @@ RESERVATION_NAME_FOUND=no
                    res_name=$RESERVATION_NAME
                    res_queue=$RESERVATION_QUEUE
                    RESERVATION_USE=yes
+#
+# warn about queue change:
+#
                 else 
                    echo " Adios.  Use \"scontrol show reservations\" to view reservations."
                    exit 1
@@ -1103,17 +1514,16 @@ RESERVATION_NAME_FOUND=no
  
     fi
  
- 
     if [[ $res_totl -eq 0 ]]; then
        if [[ $RESERVATION_CONTROL == USER_SET ]]; then
-         echo " No reservation named $RESERVATION for $USER was found."
-         echo " Execute: \"scontrol show reservations\"  to see reservations."
+         echo " -> No reservation named $RESERVATION for $USER was found."
+         echo " -> Execute: \"scontrol show reservations\"  to see reservations."
          exit 1;
        fi
  
        if [[ $RESERVATION_CONTROL == FIND_IT ]]; then
-         echo " No reservation for $USER was found."
-         echo " Execute: \"scontrol show reservations\"  to see reservations."
+         echo " -> No reservation for $USER was found."
+         echo " -> Execute: \"scontrol show reservations\"  to see reservations."
          exit 1;
        fi
  
@@ -1126,58 +1536,64 @@ RESERVATION_NAME_FOUND=no
     if [[ $res_totl -eq 1 || (( $res_totl -ge 2 && $res_actv -eq 1 )) ]]; then
  
        if [[ $res_actv -eq 1  ]]; then
-
           RESERVATION_USE=yes
  
           # ACTIVE Reservation
              if [[ $RESERVATION_CONTROL == USER_SET ]]; then
                 if [[ $res_name != $RESERVATION_NAME ]]; then
-                   echo " ERROR:"
-                   echo " idev reservation name (-r $RESERVATION_NAME) "
-                   echo " does not match slurm reservation name ($res_name)."
-                   echo " Aborting idev.  Execute: \"idev -r\" and idev will find the name for you."
-                   echo " Execute: \"scontrol show reservations\"  to see reservations."
+                   echo " -> ERROR:"
+                   echo " -> idev reservation name (-r $RESERVATION_NAME) "
+                   echo "    does not match slurm reservation name ($res_name)."
+                   echo "    Aborting idev.  Execute: \"idev -r\" and idev will find the name for you."
+                   echo "    Execute: \"scontrol show reservations\"  to see reservations."
                    exit 1;
                 else           #good to go
- 
-                   echo "Reservation      : --reservation=$res_name ($res_stat)"
                    RESERVATION_NAME=$res_name
                    MY_RESERVATION="#SBATCH --reservation=$res_name"
                    MY_QUEUE=$res_queue
                    RESERVATION_USE=yes
+
+                   res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"            "$MY_QUEUE"           "$S_reservation"`
+                   res_list[${pr_no_res}]=`printf "$res_format3"  "Reservation name" "$res_name"           "$S_reservation ACTIVE"`
 
                 fi
              fi
  
             
              if [[ $RESERVATION_CONTROL == FIND_IT ]]; then
-                   echo "Reservation      : --reservation=$res_name (ACTIVE)"
+                   echo " -> Found a single ACTIVE reservation, $res_name, for you."
                    RESERVATION_NAME=$res_name
                    MY_RESERVATION="#SBATCH --reservation=$res_name"
                    MY_QUEUE=$res_queue
                    RESERVATION_USE=yes
-#CHECK
-#                  echo "Using res. queue : -p $MY_QUEUE"
+
+                   res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"            "$MY_QUEUE"           "$S_reservation"`
+                   res_list[${pr_no_res}]=`printf "$res_format3"  "Reservation name" "$res_name"           "$S_reservation ACTIVE"`
              fi
+
              if [[ $RESERVATION_CONTROL == NO_OPTION ]]; then
-                   echo " We found an ACTIVE reservation request for you, named $res_name."
-                   echo " Do you want to use it for your interactive session?"
-                   echo -n " Enter y/n [default y]: "
+                   echo " -> We found an ACTIVE reservation request for you, named $res_name."
+                   echo "    Do you want to use it for your interactive session?"
+
+                   [[ $queue_from == cmdline ]] && echo -e -n "\033[1;36m$res_q_warn"; echo -e -n '\033[0m'
+
+                   echo -n " -> Enter y/n [default y]: "
                    read -s -n 1 yorn
                    echo ""
                    if [[ $yorn != y && $yorn != n ]]; then  yorn=y; fi
  
                    if [[ $yorn == y ]]; then 
-                      echo "Reservation      : --reservation=$res_name (ACTIVE)"
                       RESERVATION_NAME=$res_name
                       MY_RESERVATION="#SBATCH --reservation=$res_name"
                       MY_QUEUE=$res_queue
                       RESERVATION_USE=yes
-#CHECK
-#                     echo "Using res. queue : -p $MY_QUEUE"
+
+                      res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"            "$MY_QUEUE"           "$S_reservation"`
+                      res_list[${pr_no_res}]=`printf "$res_format3"  "Reservation name" "$res_name"           "$S_reservation ACTIVE"`
+
                     else  #Continue on as a non-reservation request.
-                       echo " Continuing without using your reservation."
-                       echo " Use \"scontrol show reservations\" to view your reservation(s)."
+                       echo " -> Continuing without using your reservation."
+                       echo " -> Use \"scontrol show reservations\" to view your reservation(s)."
                        RESERVATION_USE=no 
                    fi
              fi
@@ -1185,34 +1601,36 @@ RESERVATION_NAME_FOUND=no
           
           if [[ $RESERVATION_CONTROL == USER_SET || $RESERVATION_CONTROL == FIND_IT ]]; then
  
-             echo "Reservation      : --reservation=$res_name (INACTIVE)"
+             echo " ->Reservation      : --reservation=$res_name (INACTIVE)"
              RESERVATION_NAME=$res_name
              MY_RESERVATION="#SBATCH --reservation=$res_name"
              MY_QUEUE=$res_queue
              RESERVATION_USE=yes
+
+             res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"            "$MY_QUEUE"           "$S_reservation"`
+             res_list[${pr_no_res}]=`printf "$res_format3"  "Reservation name" "$res_name"           "$S_reservation ACTIVE"`
 #CHECK
-#            echo "Using res. queue : -p $MY_QUEUE"
  
              echo ""
              echo "  ****** YOU HAVE AN INACTIVE RESERVATION ******"
              echo ""
              if [[ $RESERVATION_CONTROL == FIND_IT ]]; then
-             echo "  Meaning your reservation period has not started yet."
-             echo "  You might want to control-c out of this session,"
-             echo "  and execute idev without the -r option to access nodes that are available."
+             echo " -> Meaning your reservation period has not started yet."
+             echo " -> You might want to control-c out of this session,"
+             echo "    and execute idev without the -r option to access nodes that are available."
              fi
              if [[ $RESERVATION_CONTROL == USER_SET ]]; then
-             echo "  You explicitly requested this, so idev will proceed, as you wish."
-             echo "  Execute control-c if you get tired of waiting."
+             echo " -> You explicitly requested this, so idev will proceed, as you wish."
+             echo " -> Execute control-c if you get tired of waiting."
              fi
-             echo "  To see when the reservation begins, execute:  scontrol show reservations"
+             echo " -> To see when the reservation begins, execute:  scontrol show reservations"
           fi
  
           if [[ $RESERVATION_CONTROL == NO_OPTION ]]; then
              echo " "
-             echo " Just a Note: Your reservation $res_name is INACTIVE."
-             echo " Use idev -r to use it when it becomes ACTIVE."
-             echo " To see when it begins, execute:  scontrol show reservations"
+             echo " -> Just a Note: Your reservation $res_name is INACTIVE."
+             echo " -> Use idev -r to use it when it becomes ACTIVE."
+             echo " -> To see when it begins, execute:  scontrol show reservations"
              echo " "
              RESERVATION_USE=no
           fi
@@ -1226,35 +1644,38 @@ RESERVATION_NAME_FOUND=no
  
         if [[ $RESERVATION_CONTROL == USER_SET ]]; then
            if [[ $RESERVATION_NAME_FOUND != yes ]]; then
-              echo " idev didn't find a reservation ($RESERVATION_NAME)."
-              echo " Execute: \"scontrol show reservations\"  to see reservations."
+              echo " ->idev didn't find a reservation ($RESERVATION_NAME)."
+              echo " ->Execute: \"scontrol show reservations\"  to see reservations."
               exit 1
            else           #good to go
               if [[ $RESERVATION_STATUS == INACTIVE ]]; then
  
-                 echo " We found your reservation to be INACTIVE."
-                 echo " idev will not run until it becomes ACTIVE."
-                 echo " Do you want to wait on it?  We suggest no."
+                 echo " ->We found your reservation to be INACTIVE."
+                 echo "   idev will not run until it becomes ACTIVE."
+                 echo " ->Do you want to wait on it?  We suggest no."
+
+                 [[ $queue_from == cmdline ]] && echo -e -n "\033[1;36m$res_q_warn"; echo -e -n '\033[0m'
+
                  echo -n " Enter y/n [default y]: "
                  read -s -n 1 yorn
                  echo ""
                  if [[ $yorn != y && $yorn != n ]]; then  yorn=y; fi
     
                  if [[ $yorn == y ]]; then 
-                    echo "Reservation      : --reservation=$RESERVATION_NAME (INACTIVE)"
+                    echo " ->Reservation      : --reservation=$RESERVATION_NAME (INACTIVE)"
                     MY_RESERVATION="#SBATCH --reservation=$RESERVATION_NAME"
                     MY_QUEUE=$RESERVATION_QUEUE
 #CHECK
 #                   echo "Using res. queue : -p $MY_QUEUE"
                     RESERVATION_USE=yes
                  else 
-                    echo " Adios.  Use \"scontrol show reservations\" to view reservations."
+                    echo " ->Adios.  Use \"scontrol show reservations\" to view reservations."
                     exit 1
                  fi
               else
           
                  #But USER_SET assures us one particular reservation is requested.
-                 echo "Reservation      : --reservation=$RESERVATION_NAME (ACTIVE)"
+                 echo " ->Reservation      : --reservation=$RESERVATION_NAME (ACTIVE)"
                  MY_RESERVATION="#SBATCH --reservation=$RESERVATION_NAME"
                  MY_QUEUE=$RESERVATION_QUEUE
 #CHECK
@@ -1264,43 +1685,106 @@ RESERVATION_NAME_FOUND=no
            fi
         fi
  
- 
        if [[  $RESERVATION_CONTROL == FIND_IT ]]; then
           if [[ $res_actv -gt 1  ]]; then
-             echo -e "\n You have $res_actv ACTIVE reservations."
-             echo -e " I'm at a loss as to which one idev should use."
-             echo -e " Please execute idev with the -r <reservation> -p <queue> options."
-             echo -e " To see your ACTIVE reservations, execute:  scontrol show reservations."
+             echo -e "\n -> You have $res_actv ACTIVE reservations."
+             echo -e "    I'm at a loss as to which one idev should use."
+             echo -e "    Please execute idev again with a reservation name with the -r <reservation_name> option."
+             echo -e "    Reservations (names) are listed below. Use:  \"scontrol show reservations\" for details."
+
+             printf "      %-24s %-16s   %-10s\n" "Reservation"   "Associated Queue" "STATUS"
+             for i in "${!all_res_names[@]}"; do
+               printf "      %-24s %-16s   %-10s\n" ${all_res_names[$i]}  ${all_res_queues[$i]} ${all_res_status[$i]}
+             done
              exit 1
           fi
           if [[ $res_actv -eq 0  ]]; then
-             echo -e "\n You have NO ACTIVE reservations and $res_totl INACTIVE reservations."
-             echo -e " I'm at a loss as to which one should be used."
-             echo -e " Please execution idev with the -r <reservation> -p <queue> options."
-             echo -e " To see your reservations, execute:  scontrol show reservations."
+             echo -e "\n -> You have NO ACTIVE reservations and $res_totl INACTIVE reservations."
+             echo -e "    You can wait in idev on a reservation to become available (not suggested)."
+             echo -e "    I'm at a loss as to which one should be used."
+             echo -e "    If so, please execute idev again with the -r <reservation_name> option."
+             echo -e "    Reservations (names) are listed below. Use:  \"scontrol show reservations\" for details."
+
+             printf "      %-24s %-16s   %-10s\n" "Reservation"   "Associated Queue" "STATUS"
+             for i in "${!all_res_names[@]}"; do
+               printf "      %-24s %-16s   %-10s\n" ${all_res_names[$i]}  ${all_res_queues[$i]} ${all_res_status[$i]}
+             done
              exit 1
           fi
        fi
 
        if [[  $RESERVATION_CONTROL == NO_OPTION  ]]; then
           if [[ $res_actv -gt 1  ]]; then
-             echo -e "\n NOTE: **** You have $res_actv ACTIVE reservations.        ****"
-             echo -e "         **** Idev expects that you want to use one of them. ****"
-             echo -e " If you want to use one of these, execute idev -r <reservation_name>"
-             echo -e " To see your reservations, execute:  scontrol show reservations."
-             echo -e " Use \"idev -r none\" to avoid this message and NOT exit idev."
-             exit 1
+             echo -e "\n -> NOTE: **** You have $res_actv ACTIVE reservations.                ****"
+             echo -e "          **** Idev expects that you want to use one of them. ****"
+             echo -e "          If you do not want to use one of these, exit at any time (type control c). "
+             echo -e ""
+
+# Request selection here:
+                       # Set up Reservation Selection
+          
+             echo " -> Select a reservation from one of the following ACTIVE Reservations:"
+
+             printf "      %-24s %-16s   %-10s\n" "Reservation"   "Associated Queue" "STATUS"
+             for i in "${!all_res_names[@]}"; do
+               printf "      %-24s %-16s   %-10s\n" ${all_res_names[$i]}  ${all_res_queues[$i]} ${all_res_status[$i]}
+             done
+             select_values=("${active_res_names[@]}")
+
+             echo ""
+             echo " $IDEV_SYM  Advice: use \"-r none\" to eliminate reservation prompting."
+             echo ""
+          
+             declare -a select_values
+             select_values=("${active_res_names[@]}")
+                                # 2/7/18  Allow to opt out of using one of 2 or more ACTIVE reservations.
+             select_values+=('I_do_not_want_to_use_any_of_my_ACTIVE_reservations.')
+             select_type="Reservation"
+          
+             selected_value_default="${active_res_names[0]}"
+                                # 2/7/18  Do not allow a default
+            #selected_no_default="1"
+             selected_no_default="none"
+             selected_value="$selected_value_default"  #Just in case
+          
+                                 # Have the user select a reservation
+             select_one
+             unset select_values
+             res_name="$selected_value"
+                                 # 2/7/18 if found "I_do_not_want_to", don't follow next reservation code
+            if [[ ! $res_name =~ "I_do_not_want" ]]; then
+          
+                                 # Find the queue for the selected active reservation
+             for i in "${!active_res_names[@]}"; do
+               [[ "${active_res_names[$i]}" = "${res_name}" ]] && res_queue="${active_res_queues[$i]}"
+             done
+#!#RESERVATION CHECK  reservations file and IDEV_RESERVATION_CHECK set to yes
+             RESERVATION_NAME=$res_name
+             MY_RESERVATION="#SBATCH --reservation=$res_name"
+             MY_QUEUE=$res_queue
+             RESERVATION_USE=yes
+
+             res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"            "$MY_QUEUE"           "$S_reservation"`
+             res_list[${pr_no_res}]=`printf "$res_format3"  "Reservation name" "$res_name"           "$S_reservation ACTIVE"`
+#!#RESERVATION CHECK  reservations file and IDEV_RESERVATION_CHECK set to yes
+
+
+            #echo -e " ->       If you want to use one of these, execute idev -r <reservation_name>"
+            #echo -e " ->       To see your reservations, execute:  scontrol show reservations."
+            #echo -e " ->       Use \"idev -r none\" to avoid this message and NOT exit idev."
+            #exit 1
+           fi
           else 
-             echo -e "\n FYI: You have $res_totl INACTIVE reservations."
-             echo -e "      Idev is not asking to use them because they are INACTIVE."
-             echo -e "      If you want to wait on one of them, re-execute idev with the -r option."
+             echo -e "\n -> FYI: You have $res_totl INACTIVE reservations."
+             echo -e " ->      Idev is not asking to use them because they are INACTIVE."
+             echo -e " ->      If you want to wait on one of them, re-execute idev with the -r option."
              echo -e "\n"
           fi
        fi
 
     fi
  
- fi
+fi
  # Array info, etc. 
  #http://stackoverflow.com/questions/6723426/looping-over-arrays-printing-both-index-and-value
  #http://tldp.org/HOWTO/Bash-Prog-Intro-HOWTO-10.html
@@ -1322,7 +1806,9 @@ RESERVATION_NAME_FOUND=no
                       if [[ $queue_from == cmdline ]]; then
 
                          MY_QUEUE=$CMDLINE_QUEUE
-                         echo "Cmdline    queue : -p $MY_QUEUE"
+                        #echo "Cmdline    queue : -p $MY_QUEUE"
+                        #res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line"
+                        # ^ should already be set.  Really concerned about else. 
 
                       else
 
@@ -1350,35 +1836,41 @@ RESERVATION_NAME_FOUND=no
 
 #################beg POST RESERVATION
 
-if [[ $login_sourcing == "yes" ]] ; then     #login sourcing
-  #SETUP  Make sure user has the idev login commands.
+#################beg Check on QUEUE availability
 
-  if [[  -n $IDEV_SETUP_BYPASS ]]; then
-    if [   "$IDEV_SETUP_BYPASS" != "$IDEV_SETUP_VER" ]; then
-      echo "The idev shell setup has changed to version $IDEV_SETUP_VER."
-      echo "Please read about the changes in the idev script, make appropriate"
-      echo "adjustments, and set your IDEV_SETUP_BYPASS var to $IDEV_SETUP_VER."
-      exit 1
-    fi
-  else
-    $DIR/idev_utils ${idev_login_shell}_login_insertion $MY_SYS $idev_dir
-  fi
+   echo ""; echo  -n " -> Checking on the status of $MY_QUEUE queue.";
+   queue_status=`sinfo -p $MY_QUEUE -o "%20P %5a" |grep $MY_QUEUE | awk '{print $2}'`
+   if [[ $queue_status = "" ]]; then
+     echo ""
+     echo "Sorry, SOMETHING WENT WRONG INTERNALLY, ERROR 001, please report to consulting staff."
+     exit
+   fi
+   up_status=up
+   [[ ! -z ${IDEV_QUEUE_CHECK+x} ]] && up_status=xx 
 
-  if [[ $insert_option == uninstall ]]; then
-                  echo " Uninstalling..."
-        $DIR/idev_utils ${idev_login_shell}_login_insertion $MY_SYS $idev_dir $insert_option
-                  echo " Uninstall Complete."
-                 #do_exit=yes
-        if [[ ! -z $idev_login_ver ]] ; then
-           echo "Remember to LOGOUT!"
-           echo "Remember to LOGOUT!"
-           echo "Remember to LOGOUT!"
-           echo "Remember to LOGOUT!"
-           echo "Remember to LOGOUT!"
-        fi
-                  exit 0
-  fi
-fi # end of login sourcing
+if [[ $queue_status != $up_status ]]; then
+   echo " NOT OK"; echo ""
+   echo "      The status of the $MY_QUEUE queue is $queue_status."
+   echo "      Since the status (availability) is not \"$up_status\" "
+   echo "      Either exit, and use the -p option to select a different queue (in an \"up\" state)"
+   echo "      or     wait in idev for the queue to come back up (not suggested)."
+   echo "      or     if a reservation has been requested, select another reservation (-r res_name) or go reservationless (-r none)"; echo ""
+
+   echo "         Partition states:"; echo ""
+
+   sinfo -o "      %20P %5a"; echo ""
+
+   declare -a select_values
+   select_values=("exit" "wait"); select_type=exit_or_wait
+   selected_value_default=exit
+   selected_no_default=1
+   select_one
+   unset select_values
+else
+   echo " OK"; echo ""
+fi
+
+#################end Check on QUEUE availability
 
 ###################################  Project INFO Begin
 
@@ -1402,7 +1894,7 @@ if [[ $check_project == yes ]]; then
    #some systems don't have a normal queue
 
    test_queue=normal
-   [[ $MY_SYS == maverick ]]          && test_queue=gpu
+   [[ $MY_SYS == maverick2 ]]    && test_queue=gpu
 if [[ $IDEV_TEST != ON ]]; then
    [[ $TACC_SLURM_CONF =~ _LG ]] && test_queue=largemem512GB
 fi
@@ -1413,6 +1905,7 @@ cat <<EOF >/tmp/idev_acct_job_$my_pid
 #SBATCH -o /dev/null
 #SBATCH -p $test_queue
 #SBATCH -n $CpN
+#SBATCH -N 1
 #SBATCH -t 00:01:00
 EOF
 
@@ -1449,7 +1942,7 @@ EOF
        exit 1
      fi
 
-     echo "--> $project_no is the project number you selected."
+     echo " -> $project_no is the project number you selected."
 
      if [[ $project_no -gt 0 && $project_no -le ${#project_array[@]} ]]; then
 #    if [[ $project_no > 0 && $project_no <= ${project_array[@]} ]]; then
@@ -1463,6 +1956,7 @@ EOF
      fi
 
      IDEV_ACCOUNT="-A  $MY_ACCOUNT"
+     res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$MY_ACCOUNT"         "$S_idevrc"`
 
    else
    #  echo " You have a single project named ${project_array[0]}."
@@ -1479,11 +1973,16 @@ EOF
         MY_ACCOUNT="use_default"
       else
         echo " You have a single project which we will use as the default."
-
+#IS THIS CORRECT????  WHY NOT USE "use_default"
         MY_ACCOUNT=${project_array[0]}
         echo "idev_project${MID} ${project_array[$array_no]}" >> $HOME/.idevrc
 
         IDEV_ACCOUNT=" "
+        res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "($MY_ACCOUNT)"         "SLURM default"`
+
+       #MY_ACCOUNT=${project_array[0]}
+       #echo "idev_project${MID} use_default" >> $HOME/.idevrc
+       #res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "($MY_ACCOUNT)"         "SLURM default"`
 
       fi
    fi
@@ -1495,6 +1994,7 @@ fi
 
 
 ###################################  Project INFO End
+
 #################################### Latest Setup Check Begin
 
 #               Make sure user is using the latest setup.
@@ -1510,10 +2010,27 @@ fi
    fi
 #################################### Setup Check End
 
+#################################### List Options Begin
+   for i in ${!res_list[*]}; do
+     echo   "${res_list[$i]}"
+   done
+#################################### List Options End
+
+#exit
 
 ####################################beg Submit SLURM batch job
 
-mult_proj_err="ERROR: You have multiple projects to charge to"
+mult_proj_err=" ->ERROR: You have multiple projects to charge to"
+[[ -n $IDEV ]] && echo "#SBATCH -p  $MY_QUEUE"
+[[ -n $IDEV ]] && echo "#SBATCH -N  ${MY_NODES}"
+[[ -n $IDEV ]] && echo "#SBATCH $IDEV_TOTAL_TASKS"
+[[ -n $IDEV ]] && echo "#SBATCH $IDEV_TASKS_PER_NODE"
+[[ -n $IDEV ]] && echo "#SBATCH $IDEV_ACCOUNT"
+[[ -n $IDEV ]] && echo MYSLURMARGS: $IDEV_SLURM_ARGS
+[[ -n $IDEV ]] && echo $MY_RESERVATION
+[[ -n $IDEV ]] && echo $MY_EMAIL
+
+[[ -n $IDEV ]] &&  exit
 
 #cat >/tmp/myjob_$USER.$$ <<EOF
 cat >$HOME/.slurm/myjob_$USER.$$ <<EOF
@@ -1522,9 +2039,14 @@ cat >$HOME/.slurm/myjob_$USER.$$ <<EOF
 #SBATCH -o  $HOME/.slurm/${JOB_NAME}.o%j
 #SBATCH -p  $MY_QUEUE
 #SBATCH -t  $MY_hhmmss_TIME
-#SBATCH -n  ${MY_TOTAL_TASKS}
-#SBATCH $IDEV_NODES
+##-##
+#SBATCH -N  ${MY_NODES}
+#SBATCH $IDEV_TOTAL_TASKS
+#SBATCH $IDEV_TASKS_PER_NODE
 #SBATCH $IDEV_ACCOUNT
+##-##
+$IDEV_SLURM_ARGS
+
 $MY_RESERVATION
 $MY_EMAIL
 
@@ -1539,6 +2061,16 @@ $CREATE_NODE_LIST_CMD
 sleep $job_sleep
 
 EOF
+#############################END of BATCH SUBMISSION SCRIPT
+
+# EXIT HERE for checking submissions
+if [[ ! -z ${IDEV_RESERVATIONS_TEST+x} ]]; then
+   grep -i reservation $HOME/.slurm/myjob_$USER.$$
+   exit
+fi
+[[ ! -z ${IDEV_QUEUE_CHECK+x} ]] && exit
+
+#############################SUBMIT
 
 #sbatch /tmp/myjob_$USER.$$
 sbatch $HOME/.slurm/myjob_$USER.$$ 2>&1 | tee /tmp/idev_submit_${USER}_$my_pid
@@ -1556,14 +2088,14 @@ if [[ $sbatch_status != 0 ]]; then
    if [[ $? == 0 && $MY_ACCOUNT =~ use_default ]]; then
        exit_msg=" "
        echo ""
-       echo "--> IDEV found one of the following on $MY_SYS:"
-       echo "***     You now have more than one account project        ***"
-       echo "***     Specifying no account project is no longer valid. ***"
-       echo "*** The default project is being removed from ~/.idevrc.  ***"
-       echo "--> Your old .idevrc has been moved to .idevrc_$$_safety " 
+       echo " -> IDEV found one of the following on $MY_SYS:"
+       echo " **     You now have more than one account project        **"
+       echo " **     Specifying no account project is no longer valid. **"
+       echo " ** The default project is being removed from ~/.idevrc.  **"
+       echo " -> Your old .idevrc has been moved to .idevrc_$$_safety " 
        echo ""
-       echo "--> EXECUTE IDEV AGAIN TO SELECT A NEW DEFAULT ACCOUNT.   ***"
-       echo "*** and begin your next idev session.                     ***"
+       echo " -> EXECUTE IDEV AGAIN TO SELECT A NEW DEFAULT ACCOUNT.   **"
+       echo " ** and begin your next idev session.                     **"
        echo ""
 
        sed  "/idev_project${MID}\s/d"      $HOME/.idevrc |
@@ -1590,11 +2122,9 @@ fi
 job_id=none
 job_submitted=yes
   
-echo -e "\n After your idev job begins to run, a command prompt will appear,"
-echo -e   " and you can begin your interactive development session. "
-  
-#echo -e   " We will report the job status every $monitor_sleep seconds: (qw=queue wait, r=running).\n"
-echo -e   " We will report the job status every $monitor_sleep seconds: (PD=pending, R=running).\n"
+echo -e "\n -> After your idev job begins to run, a command prompt will appear,"
+echo -e   " -> and you can begin your interactive development session. "
+echo -e   " -> We will report the job status every $monitor_sleep seconds: (PD=pending, R=running).\n"
 torf=1
 #                             Environment file check: parameters.
 found_env_file=1
@@ -1609,7 +2139,7 @@ do
    squeue -p $MY_QUEUE "$squeue_opts" -u $USER | grep "$JOB_NAME" >& /dev/null
    if [ $? ]; then
       mystatus=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $5}'`
-      echo "job status:  $mystatus"
+      echo " -> job status:  $mystatus"
       job_id=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $1}'`
       if [ x"$mystatus" == "xR" ]; then
          master_node=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | awk '$3 ~ /'"$JOB_NAME"'/ { print $8}'`
@@ -1623,8 +2153,8 @@ do
          nodestring=$master_node
   
 
-         echo "--> Job is now running on masternode= $master_node...OK"
-         echo -ne "--> Sleeping for $sleep_after_run seconds."
+         echo -e "\n -> Job is now running on masternode= $master_node...OK"
+         echo -ne  " -> Sleeping for $sleep_after_run seconds."
          sleep $sleep_after_run
          echo "..OK"
 #                                            Get master and rank 0 nodes
@@ -1643,7 +2173,7 @@ do
 #                                            is in /tmp on the compute node.
 #                                            Multi-node jobs may take up to 25 sec.
 #                                            before the script is started.
-         echo -ne "--> Checking to make sure your job has initialized an env for you."
+         echo -ne " -> Checking to make sure your job has initialized an env for you."
 ####
          while [ $found_env_file == 1 ]; do
          
@@ -1652,7 +2182,7 @@ do
                 found_env_file=0
                 if [[ $time_waited_env_file > 0 ]]; then
                    echo ""
-                   echo "--> Yahoo! The environment is now in place...OK"
+                   echo " -> Yahoo! The environment is now in place...OK"
                 else
                    echo "...OK"
                 fi
@@ -1660,12 +2190,12 @@ do
          
                 if [[ $time_waited_env_file == 0 ]]; then
                   echo ""
-                  echo "Hmm, for multi-node jobs, (or when $BATCH_SYS is sleepy) we need to"
-                  echo "     give $BATCH_SYS more time to kick things off (maybe 20 sec.). "
-                  echo "     I'll check every $sleep_time_env_file secs."
+                  echo " -> Hmm, for multi-node jobs, (or when $BATCH_SYS is sleepy) we need to"
+                  echo " ->      give $BATCH_SYS more time to kick things off (maybe 20 sec.). "
+                  echo " ->      I'll check every $sleep_time_env_file secs."
                   echo ""
                 fi
-                echo   "     Time waited (sec.) : $time_waited_env_file"
+                echo   " ->      Time waited (sec.) : $time_waited_env_file"
                 sleep $sleep_time_env_file
                 time_waited_env_file=$(( $time_waited_env_file + 5 ))
              fi
@@ -1673,7 +2203,8 @@ do
   
 ####
   
-         echo "--> Creating interactive terminal session (login) on $use_node_type node $node."
+         echo " -> Creating interactive terminal session (login) on $use_node_type node $node."
+         echo ""
 #                                            Finally!
          echo -en "\007"
          ssh -Y -A  -o "StrictHostKeyChecking no" $node
