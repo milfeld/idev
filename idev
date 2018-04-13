@@ -154,12 +154,15 @@
 #  If more than 2 ACTIVE reservation, now allow user to opt out of
 #  using a reservation.
 #  Advise users of rogue (old) version to use updated version.
-#                                                 02/79/2018  Kent Milfeld
-# Check  at 1564
+#                                                 02/09/2018  Kent Milfeld
+#
+#  1.5.4 Moved reservation detection before "tpn" determination.
+#  (Fixed Bug of reservation queue not considered in tpn determination.)
+#                                                 04/13/2018  Kent Milfeld
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.5.3
+   IDEV_VER=1.5.4
    IDEV_SETUP_VER=1.00
    IDEV_SYM="->"
    TACC_SUPPORTED_SYSTEM="stampede2, stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
@@ -1159,242 +1162,7 @@ if [[ $qselect == yes ]]; then
        echo " -> $MY_QUEUE is the queue you selected."
 fi
 ############################################end queue select
-
-############################################beg Dependent options
-   # GET BASIC INFO (queue specific): Sockets Cores/Socket HardWare Threads per Core
-  
-             #Now that the queue is known, determine its Threads per Node (TpN)
-             #Queue_Sockets_CoresPerSocket_HardwareThreads
-   declare -a Q_S_CpS_HWT=(`sinfo -p $MY_QUEUE -o "%P %X %Y %Z" | grep -P '^'$MY_QUEUE'[\s\*]'`)
-
-   if [[ ${#Q_S_CpS_HWT[*]} == 0 ]]; then
-      echo " ->Cmd line: $0 $cmd_args"
-      echo " ->ERROR: The $MY_QUEUE queue is not known on this system."
-      exit
-   fi
-  
-             #Make the MPI Tasks per Node equal to the Cores per Node
-   CpN=$(( ${Q_S_CpS_HWT[1]} * ${Q_S_CpS_HWT[2]} ))
-   TpN=$CpN
-   HWTpC=${Q_S_CpS_HWT[3]}
-   PpN=$(( $CpN * $HWTpC ))
-
-  ############################################beg  DEFINE function
-
-
-  ask_queue_idevrc_tpn()
-  {
-     idevrc_queue_tpn=unset 
-     while [[ $idevrc_queue_tpn == unset ]]; do
-        # FIND OUT WHAT THE USER WANTS
-        echo ""
-        echo    " -> Compute nodes in the $MY_QUEUE queue of the $MY_SYS system have HyperThreading turned on."
-        echo    " -> Normal HPC Applications will use no more than $CpN tasks per node (=cores/node)."
-        echo    " -> Few Apps use all HyperThreads [$HWTpC (HWthreads/Core) x $CpN (Cores/Node) = $PpN )."
-        echo -n " -> FOR IDEV USE: specify the default tasks/per node for this queue." 
-#       echo    "($CpN suggested)."
-        echo -e "\033[1;36m($CpN suggested)"; echo -e -n '\033[0m'
-        if [[ $MY_SYS == knl ]]; then
-        echo    " -> For KNC or KNL you might want to use less than $CpN tasks/node (e.g. 4, 8, ...)."
-        fi
-  
-        # FIND OUT WHAT THE USER WANTS
-         echo -n "Please type the tasks per node and hit return: "
-         read  my_tpn
-         if [[  $my_tpn =~ ^[0-9]+$ &&  $my_tpn -gt 0  &&  $my_tpn -lt 273  ]]; then
-            idevrc_queue_tpn=$my_tpn
-         else
-            if [[  x$my_tpn == x  ]]; then
-              idevrc_queue_tpn=$CpN
-            else
-              echo "That is not a number between 1-272."
-              echo "Please enter a valid number."
-            fi
-         fi
-
-         echo " -> $idevrc_queue_tpn is the number of tasks per node selected for the $MY_QUEUE queue."
-         echo "idev_tpn_${MY_QUEUE}${MID} ${idevrc_queue_tpn}" >> $HOME/.idevrc
-
-       done
-       idevrc_tpn=$idevrc_queue_tpn
-  }
-
-  ############################################end  DEFINE function
-
-if [[ ${#Q_TpN_array[*]} != 0 ]]; then
-  for i in ${!Q_TpN_array[*]} ; do
-    [[ ${Q_TpN_array[$i]} =~ idev_tpn_${MY_QUEUE}$MID ]] && idevrc_tpn=${Q_TpN_array[ $((i+1)) ]}
-  done
-fi
-# idevrc_tpn may still be "unset" here
-
-
-############################################beg  tpn logic
-
-# TOTAL TASKS and NUMBER of NODES
-
-#case 1-3
-tpn_set_by=unset
-                           #DEFAULT MY_NODES=1
- if [[ $opt_NODE_count == 0 && $opt_TASK_count == 0 ]]; then
-[[ -n $IDEV ]] &&  echo "case 1-3 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
-   MY_NODES=1
-   res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_idev_default"`
-
-   if [[ $idevrc_tpn != unset ]]; then
-     IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
-     MY_TASKS_PER_NODE="$idevrc_tpn"
-     tpn_set_by="$S_idevrc"
-   else
-     if [[ $HWTpC -eq 1 ]]; then   
-        IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
-        MY_TASKS_PER_NODE="$CpN"
-        tpn_set_by="Queue default"
-     else
-        if [[ $idevrc_tpn == unset ]]; then
-          ask_queue_idevrc_tpn
-        fi 
-
-        IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
-        MY_TASKS_PER_NODE="$idevrc_tpn"
-        tpn_set_by="$S_idevrc"
-     fi
-
-   fi
- fi
-
-#case 4
- if [[ $opt_NODE_count ==  0 && $opt_TASK_count >  0 ]]; then
-[[ -n $IDEV ]] && echo "case 4 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
-   echo " ->Cmd line: $0 $cmd_args"
-   echo " ->ERROR: If total tasks (-n) and/or tasks per node (--tasks-per-node or -tpn)"
-   echo "           are specified, -N (nodes) MUST be specified."
-
-   exit
- fi
-
-#case 5-7
- if [[ $opt_NODE_count  > 0 && $opt_TASK_count >  0 ]]; then
-[[ -n $IDEV ]] && echo "case 5-7 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
-     if [[ $opt_tasks_per_node == set ]]; then
-        IDEV_TASKS_PER_NODE=" --tasks-per-node $MY_TASKS_PER_NODE"
-       #tpn_set_by="$S_cmd_line --tasks-per-node"   #NEEDS LONG FORMAT
-        tpn_set_by="$S_cmd_line $tpn_type"   #NEEDS LONG FORMAT
-     fi
-     if [[ $opt_total_tasks == set ]]; then
-        IDEV_TOTAL_TASKS=" -n $MY_TOTAL_TASKS"
-     else
-        IDEV_TOTAL_TASKS=""
-     fi
-
- fi
-
-#case 8
-
- if [[ $opt_NODE_count > 0 && $opt_TASK_count == 0 ]]; then
-[[ -n $IDEV ]] && echo "case 8 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
-   if [[ $idevrc_tpn != unset ]]; then                       #8
-     MY_TASKS_PER_NODE=$idevrc_tpn
-     IDEV_TASKS_PER_NODE=" --tasks-per-node $idevrc_tpn"
-     tpn_set_by="$S_idevrc"
-   else
-     if [[ $HWTpC -eq 1 ]]; then                             #9
-       MY_TASKS_PER_NODE=$CpN
-       IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
-       tpn_set_by="Queue default"
-     else                                                   #10
-       ask_queue_idevrc_tpn
-       MY_TASKS_PER_NODE=$idevrc_tpn
-       IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
-       tpn_set_by="$S_idevrc"
-     fi
-   fi
- fi
-
- echo ""
- if [[ $tpn_set_by != unset ]]; then
-    if [[ $tpn_set_by =~ -- ]];then
-       res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
-    else
-       res_list[${pr_no_tpn}]=`printf "$res_format3"  "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
-    fi
-fi
-
-############################################end  tpn logic
-
-# if [[ ${SYSTEMS_REQUIRE_USER_DEFINE_n[@]} =~ $MY_SYS ]]; then
-# 
-#  if [[ $opt_NODE_count == 0 && $opt_TASK_count ==  0 ]]; then
-#     if [[ ${my_default_n} == unset ]]; then
-# 
-#       # FIND OUT WHAT THE USER WANTS
-#       echo " ==> idev uses 1 $MY_SYS node by default (-N SLURM value)."
-#       echo " ==> Please set the total number of tasks to use with this default (the default -n SLURM value)."
-# 
-#        echo -n "Please type your the default total tasks for a single node and hit return: "
-#        read  my_n
-#      # if [[  $my_n =~ ^[0-9]+$ &&  $my_n > 0  &&  $my_n < 273  ]]; then
-#        if [[  $my_n =~ ^[0-9]+$ &&  $my_n -gt 0  &&  $my_n -lt 273  ]]; then
-#           my_default_n=$my_n
-#           echo " -> $my_default_n is the number of tasks selected."
-#        else
-#           echo "That is not a number between 1-272."
-#           echo "Please enter a valid number."
-#           echo "put while around this statement."
-#        fi
-# 
-#        #echo "idev_n${MID} ${my_default_n}" >> $HOME/.idevrc
-# 
-#        # FIND OUT WHAT THE USER WANTS end
-#     else
-#        MY_TOTAL_TASKS=$my_default_n
-#     fi
-#  fi 
-# fi
-
-
-############################################beg  grace queue
-
-#      if grace-serial queue     
-if [[ $MY_QUEUE =~ grace-serial ]]; then
-
-  squeue -p $MY_QUEUE "$squeue_opts" -u $USER | \
-            awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
-            awk '{print $5}' | grep R >/dev/null
-  if [ $? = 0 ]; then
-    using_node=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | \
-            awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
-            awk '{print $8}' `
-    echo ""
-    echo " ->ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
-    echo ""
-    echo " ->You are executing idev again in the $MY_QUEUE queue."
-    echo "    In this queue only 1 idev interactive job is allowed."
-    echo "    You may have multiple windows open to the job (node) for an active"
-    echo "    IDEV session by opening a new window on a login node, and SSHing"
-    echo "    to the node of the job with the command:"
-    echo ""
-    echo "                 ssh -Y $using_node   "
-    echo ""
-    echo " ->In a new window you can customize your environment if"
-    echo "   you want to work interactively on different projects."  
-    echo ""
-    do_exit=yes; OPT_ERR=2
-  fi
-fi
-
-############################################end  grace queue
-
-############################################end  Dependent options
-
-
-#                         Bail out if not launching or arg error
-#                         Only last error value is reported in trap.
-#                         But all error messages reported (above).
-#------------------------------------------------------------------------------
-[[ $do_exit == "yes" ]] && exit $OPT_ERR
-#------------------------------------------------------------------------------
-
+###--vDIR and RESERVATION PROCESSING (from ###MOVED DIR and RESERVATION... (from 1399)
 
 # Make sure there is a .slurm directory:(
 if [ ! -d $HOME/.slurm ]; then
@@ -1794,10 +1562,6 @@ fi
 ############################################end  RESERVATION
 
 
-
-
-
-
 #################beg POST RESERVATION
 
 #                                       Make adjustment if reservation doesn't have a queue.
@@ -1831,10 +1595,250 @@ fi
 
                    fi
 
+
 #  If$MY_QUEUE='(null)' and does not have -p abort.
 #
 
 #################beg POST RESERVATION
+
+###--^DIR and RESERVATION PROCESSING (from ###MOVED DIR and RESERVATION... (from 1399)
+############################################beg Dependent options
+   # GET BASIC INFO (queue specific): Sockets Cores/Socket HardWare Threads per Core
+  
+             #Now that the queue is known, determine its Threads per Node (TpN)
+             #Queue_Sockets_CoresPerSocket_HardwareThreads
+   declare -a Q_S_CpS_HWT=(`sinfo -p $MY_QUEUE -o "%P %X %Y %Z" | grep -P '^'$MY_QUEUE'[\s\*]'`)
+   #  Careful, Queue name may have a "*" at end. (means default queue)
+
+   if [[ ${#Q_S_CpS_HWT[*]} == 0 ]]; then
+      echo " ->Cmd line: $0 $cmd_args"
+      echo " ->ERROR: The $MY_QUEUE queue is not known on this system."
+      exit
+   fi
+  
+             #Make the MPI Tasks per Node equal to the Cores per Node
+   CpN=$(( ${Q_S_CpS_HWT[1]} * ${Q_S_CpS_HWT[2]} ))
+   TpN=$CpN
+   HWTpC=${Q_S_CpS_HWT[3]}
+   PpN=$(( $CpN * $HWTpC ))
+
+  ############################################beg  DEFINE function
+
+
+  ask_queue_idevrc_tpn()
+  {
+     idevrc_queue_tpn=unset 
+     while [[ $idevrc_queue_tpn == unset ]]; do
+        # FIND OUT WHAT THE USER WANTS
+        echo ""
+        echo    " -> Compute nodes in the $MY_QUEUE queue of the $MY_SYS system have HyperThreading turned on."
+        echo    " -> Normal HPC Applications will use no more than $CpN tasks per node (=cores/node)."
+        echo    " -> Few Apps use all HyperThreads [$HWTpC (HWthreads/Core) x $CpN (Cores/Node) = $PpN )."
+        echo -n " -> FOR IDEV USE: specify the default tasks/per node for this queue." 
+#       echo    "($CpN suggested)."
+        echo -e "\033[1;36m($CpN suggested)"; echo -e -n '\033[0m'
+        if [[ $MY_SYS == knl ]]; then
+        echo    " -> For KNC or KNL you might want to use less than $CpN tasks/node (e.g. 4, 8, ...)."
+        fi
+  
+        # FIND OUT WHAT THE USER WANTS
+         echo -n "Please type the tasks per node and hit return: "
+         read  my_tpn
+         if [[  $my_tpn =~ ^[0-9]+$ &&  $my_tpn -gt 0  &&  $my_tpn -lt 273  ]]; then
+            idevrc_queue_tpn=$my_tpn
+         else
+            if [[  x$my_tpn == x  ]]; then
+              idevrc_queue_tpn=$CpN
+            else
+              echo "That is not a number between 1-272."
+              echo "Please enter a valid number."
+            fi
+         fi
+
+         echo " -> $idevrc_queue_tpn is the number of tasks per node selected for the $MY_QUEUE queue."
+         echo "idev_tpn_${MY_QUEUE}${MID} ${idevrc_queue_tpn}" >> $HOME/.idevrc
+
+       done
+       idevrc_tpn=$idevrc_queue_tpn
+  }
+
+  ############################################end  DEFINE function
+
+if [[ ${#Q_TpN_array[*]} != 0 ]]; then
+  for i in ${!Q_TpN_array[*]} ; do
+    [[ ${Q_TpN_array[$i]} =~ idev_tpn_${MY_QUEUE}$MID ]] && idevrc_tpn=${Q_TpN_array[ $((i+1)) ]}
+  done
+fi
+# idevrc_tpn may still be "unset" here
+
+
+############################################beg  tpn logic
+
+# TOTAL TASKS and NUMBER of NODES
+
+#case 1-3
+tpn_set_by=unset
+                           #DEFAULT MY_NODES=1
+ if [[ $opt_NODE_count == 0 && $opt_TASK_count == 0 ]]; then
+[[ -n $IDEV ]] &&  echo "case 1-3 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   MY_NODES=1
+   res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_idev_default"`
+
+   if [[ $idevrc_tpn != unset ]]; then
+     IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+     MY_TASKS_PER_NODE="$idevrc_tpn"
+     tpn_set_by="$S_idevrc"
+   else
+     if [[ $HWTpC -eq 1 ]]; then   
+        IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
+        MY_TASKS_PER_NODE="$CpN"
+        tpn_set_by="Queue default"
+     else
+        if [[ $idevrc_tpn == unset ]]; then
+          ask_queue_idevrc_tpn
+        fi 
+
+        IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+        MY_TASKS_PER_NODE="$idevrc_tpn"
+        tpn_set_by="$S_idevrc"
+     fi
+
+   fi
+ fi
+
+#case 4
+ if [[ $opt_NODE_count ==  0 && $opt_TASK_count >  0 ]]; then
+[[ -n $IDEV ]] && echo "case 4 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   echo " ->Cmd line: $0 $cmd_args"
+   echo " ->ERROR: If total tasks (-n) and/or tasks per node (--tasks-per-node or -tpn)"
+   echo "           are specified, -N (nodes) MUST be specified."
+
+   exit
+ fi
+
+#case 5-7
+ if [[ $opt_NODE_count  > 0 && $opt_TASK_count >  0 ]]; then
+[[ -n $IDEV ]] && echo "case 5-7 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+     if [[ $opt_tasks_per_node == set ]]; then
+        IDEV_TASKS_PER_NODE=" --tasks-per-node $MY_TASKS_PER_NODE"
+       #tpn_set_by="$S_cmd_line --tasks-per-node"   #NEEDS LONG FORMAT
+        tpn_set_by="$S_cmd_line $tpn_type"   #NEEDS LONG FORMAT
+     fi
+     if [[ $opt_total_tasks == set ]]; then
+        IDEV_TOTAL_TASKS=" -n $MY_TOTAL_TASKS"
+     else
+        IDEV_TOTAL_TASKS=""
+     fi
+
+ fi
+
+#case 8
+
+ if [[ $opt_NODE_count > 0 && $opt_TASK_count == 0 ]]; then
+[[ -n $IDEV ]] && echo "case 8 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
+   if [[ $idevrc_tpn != unset ]]; then                       #8
+     MY_TASKS_PER_NODE=$idevrc_tpn
+     IDEV_TASKS_PER_NODE=" --tasks-per-node $idevrc_tpn"
+     tpn_set_by="$S_idevrc"
+   else
+     if [[ $HWTpC -eq 1 ]]; then                             #9
+       MY_TASKS_PER_NODE=$CpN
+       IDEV_TASKS_PER_NODE="--tasks-per-node $CpN"
+       tpn_set_by="Queue default"
+     else                                                   #10
+       ask_queue_idevrc_tpn
+       MY_TASKS_PER_NODE=$idevrc_tpn
+       IDEV_TASKS_PER_NODE="--tasks-per-node $idevrc_tpn"
+       tpn_set_by="$S_idevrc"
+     fi
+   fi
+ fi
+
+ echo ""
+ if [[ $tpn_set_by != unset ]]; then
+    if [[ $tpn_set_by =~ -- ]];then
+       res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
+    else
+       res_list[${pr_no_tpn}]=`printf "$res_format3"  "Tasks per Node"  "$MY_TASKS_PER_NODE"  "$tpn_set_by"`
+    fi
+fi
+
+############################################end  tpn logic
+
+# if [[ ${SYSTEMS_REQUIRE_USER_DEFINE_n[@]} =~ $MY_SYS ]]; then
+# 
+#  if [[ $opt_NODE_count == 0 && $opt_TASK_count ==  0 ]]; then
+#     if [[ ${my_default_n} == unset ]]; then
+# 
+#       # FIND OUT WHAT THE USER WANTS
+#       echo " ==> idev uses 1 $MY_SYS node by default (-N SLURM value)."
+#       echo " ==> Please set the total number of tasks to use with this default (the default -n SLURM value)."
+# 
+#        echo -n "Please type your the default total tasks for a single node and hit return: "
+#        read  my_n
+#      # if [[  $my_n =~ ^[0-9]+$ &&  $my_n > 0  &&  $my_n < 273  ]]; then
+#        if [[  $my_n =~ ^[0-9]+$ &&  $my_n -gt 0  &&  $my_n -lt 273  ]]; then
+#           my_default_n=$my_n
+#           echo " -> $my_default_n is the number of tasks selected."
+#        else
+#           echo "That is not a number between 1-272."
+#           echo "Please enter a valid number."
+#           echo "put while around this statement."
+#        fi
+# 
+#        #echo "idev_n${MID} ${my_default_n}" >> $HOME/.idevrc
+# 
+#        # FIND OUT WHAT THE USER WANTS end
+#     else
+#        MY_TOTAL_TASKS=$my_default_n
+#     fi
+#  fi 
+# fi
+
+
+############################################beg  grace queue
+
+#      if grace-serial queue     
+if [[ $MY_QUEUE =~ grace-serial ]]; then
+
+  squeue -p $MY_QUEUE "$squeue_opts" -u $USER | \
+            awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
+            awk '{print $5}' | grep R >/dev/null
+  if [ $? = 0 ]; then
+    using_node=`squeue -p $MY_QUEUE "$squeue_opts" -u $USER | \
+            awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
+            awk '{print $8}' `
+    echo ""
+    echo " ->ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
+    echo ""
+    echo " ->You are executing idev again in the $MY_QUEUE queue."
+    echo "    In this queue only 1 idev interactive job is allowed."
+    echo "    You may have multiple windows open to the job (node) for an active"
+    echo "    IDEV session by opening a new window on a login node, and SSHing"
+    echo "    to the node of the job with the command:"
+    echo ""
+    echo "                 ssh -Y $using_node   "
+    echo ""
+    echo " ->In a new window you can customize your environment if"
+    echo "   you want to work interactively on different projects."  
+    echo ""
+    do_exit=yes; OPT_ERR=2
+  fi
+fi
+
+############################################end  grace queue
+
+############################################end  Dependent options
+
+
+#                         Bail out if not launching or arg error
+#                         Only last error value is reported in trap.
+#                         But all error messages reported (above).
+#------------------------------------------------------------------------------
+[[ $do_exit == "yes" ]] && exit $OPT_ERR
+#------------------------------------------------------------------------------
+
+###MOVED DIR and RESERVATION PROCESSING to ###DIR and RESERVATTION PROCESSING (1162)
 
 #################beg Check on QUEUE availability
 
