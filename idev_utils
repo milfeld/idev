@@ -61,6 +61,10 @@ use File::Basename;
 #   Requested by Robert Mclay.                             01/17/2017
 #   Don't remove MANPATH from environment
 #   By requested.                                          07/07/2017
+#
+#   Exclude all shell functions from becoming part of 
+#   part of environment on compute node. They should be
+#   defined and renewed in a .bashrc file.                 09/06/2018
 
 sub env_replication(@);
 sub tcsh_login_insertion(@);
@@ -204,14 +208,19 @@ sub env_replication(@){
       $value = $ENV{$key};
       $value =~  s/\n|\r//g;
 
-      if( $exclude{$key} ){
-         $unmyenv{$key} = $value;
-        #printf("%-$lenmax.${lenmax}s: $unmyenv{$key}\n",$key);
-      }
-      else {
-        #printf("%-$lenmax.${lenmax}s: $ENV{$key}\n",$key);
-         $myenv{$key} = $value;
-        #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
+      #   Make sure no shell functions are included:
+      #   Shell functions have form word=(){...}
+      #   Exclude any line which has a value that begins with "()"
+      if( $value !~ /^\(\)/ ){
+         if( $exclude{$key} ){
+            $unmyenv{$key} = $value;
+           #printf("%-$lenmax.${lenmax}s: $unmyenv{$key}\n",$key);
+         }
+         else {
+           #printf("%-$lenmax.${lenmax}s: $ENV{$key}\n",$key);
+            $myenv{$key} = $value;
+           #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
+         }
       }
    }
 

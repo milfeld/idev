@@ -93,6 +93,7 @@
 #     hikari  yes z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]
 #   stampede  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis[0-9]  visbig
 #   maverick2 no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]
+#   maverick  no  z85_ c[0-9][0-9][0-9]-[0-9][0-9][0-9]   vis & gpu
 #   stampede2          c[0-9][0-9][0-9]-[0-9][0-9][0-9]
 
 #   remove "c[0-9]-c[0-9]", this is wrong
@@ -159,16 +160,22 @@
 #  1.5.4 Moved reservation detection before "tpn" determination.
 #  (Fixed Bug of reservation queue not considered in tpn determination.)
 #                                                 04/13/2018  Kent Milfeld
+#  Added default queue (normal) for wrangler      04/25/2018  Kent Milfeld
+#  Added machine information for maverick         
+#  Remove shell functions imported from front-end environment.
+#  Let profile.d regenerate user function, LMOD regenerates its functions.
+#                                                 09/06/2018  Kent Milfeld
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.5.4
+   IDEV_VER=1.5.5
    IDEV_SETUP_VER=1.00
    IDEV_SYM="->"
-   TACC_SUPPORTED_SYSTEM="stampede2, stampede, knl, ls5, ls5_largemem, wrangler, hikari, markerick"
-   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2     )  #requires user define default total tasks
-   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272)
-   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68 )
+   TACC_SUPPORTED_SYSTEM="stampede2, stampede, knl, ls5, ls5_largemem, wrangler, hikari, maverick2, maverick"
+                                                                        #requires user define default total tasks
+   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2       hikari      wrangler     )
+   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272 [hikari]=48 [wrangler]=48 )
+   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68  [kikari]=24 [wrangler]=24 )
 
    DOTHIS="#"  # comment out cp cmd in job script. Old z85_ scripts need file without
                # $USER in name-- line is activated with DOTHIS="" for stampede/maverick2
@@ -393,11 +400,13 @@ select_one(){
 #######################################################beg system options
 
   MY_QUEUE=development
-  [[ $MY_SYS == "wrangler"  ]]  && MY_QUEUE=debug
+  [[ $MY_SYS == "maverick2" ]]  && MY_QUEUE=gtx
+  [[ $MY_SYS == "wrangler"  ]]  && MY_QUEUE=normal
   [[ $MY_SYS == "hikari"    ]]  && MY_QUEUE=normal
   [[ $MY_SYS == "knl"       ]]  && MY_QUEUE=normal
-  [[ $MY_SYS == "stampede2" ]]  && MY_QUEUE=development
+# [[ $MY_SYS == "stampede2" ]]  && MY_QUEUE=development
   [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
+  [[ $MY_SYS == "maverick"  ]]  && MY_QUEUE=gpu
 
 #######################################################end system options
 
@@ -660,9 +669,10 @@ sleep_after_run=7
 
 case $MY_SYS in
 
+   maverick)
+             ;;
+
    maverick2)
-             DOTHIS=""    #execute cp cmd in job script-- old z85_ script needs this
-             MY_QUEUE=gpu 
              ;;
 
    stampede)
@@ -684,9 +694,11 @@ case $MY_SYS in
              fi
              ;;
 
-#    hikari)
-#            nothing here
-#            ;;
+     hikari)
+             ;;
+
+   wrangler)
+             ;;
 
         knl)
              sleep_after_run=5
