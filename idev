@@ -165,17 +165,24 @@
 #  Remove shell functions imported from front-end environment.
 #  Let profile.d regenerate user function, LMOD regenerates its functions.
 #                                                 09/06/2018  Kent Milfeld
+#  Exit immediately after options determination if informational (-h|v)
+#  or option error, so that "defaults" questioning is not performed.
+#  Informational trap exit  processed without "graceful exit" notice.
+#  http://redsymbol.net/articles/bash-exit-traps/
+#                                                 12/03/2019  Kent Milfeld
+#  Added Frontera
+#                                                 13/06/2019  Kent Milfeld
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.5.5
-   IDEV_SETUP_VER=1.00
+   IDEV_VER=1.5.6
+
    IDEV_SYM="->"
-   TACC_SUPPORTED_SYSTEM="stampede2, stampede, knl, ls5, ls5_largemem, wrangler, hikari, maverick2, maverick"
+   TACC_SUPPORTED_SYSTEM="stampede2, ls5, wrangler, hikari, maverick2, frontera"
                                                                         #requires user define default total tasks
-   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2       hikari      wrangler     )
-   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272 [hikari]=48 [wrangler]=48 )
-   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68  [kikari]=24 [wrangler]=24 )
+   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2       hikari      wrangler      frontera)
+   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272 [hikari]=48 [wrangler]=48 [frontera]=112)
+   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68  [kikari]=24 [wrangler]=24 [frontera]=56)
 
    DOTHIS="#"  # comment out cp cmd in job script. Old z85_ scripts need file without
                # $USER in name-- line is activated with DOTHIS="" for stampede/maverick2
@@ -263,7 +270,9 @@ function ctrl_c() {
         else
                          #User control-c'd out before job launched.
            echo -e "$exit_msg"
-           echo -e " ->  idev: no session created, gracefully exiting...\n"
+          #echo -e " ->  idev: no session created, gracefully exiting...\n"
+           [[ "$do_exit" == "information_only" ]] && exit
+           echo -e " ->  idev command is ending with no interactive session created.\n"
            exit
         fi
 } # END TRAP Function
@@ -707,13 +716,15 @@ case $MY_SYS in
              export IDEV_LOGIN_SOURCING=USER  #remove for production version
              ;;
 
+   frontera)
+             ;;
+
           *) echo " Don't know about this system ($MY_SYS)"
              exit 1
              ;;
 esac
 
 ############################################end system defaults
-
 
 ############################################beg idev options
 do_exit=no
@@ -740,7 +751,7 @@ while (( "$#" )); do
                   echo "code as you would in a batch job."
                   echo "Supported systems: $TACC_SUPPORTED_SYSTEM."
                   echo ""
-                  echo "Idev uses a single node by default and charges the project in \$HOME/.idevrc."
+                  echo "A single node is used by default. The project listed in \$HOME/.idevrc is charged."
                   echo "Options can be in any order."
                   echo ""
                   echo "On TACC systems:"
@@ -757,10 +768,10 @@ while (( "$#" )); do
                   echo "  -m     minutes            sets time in minutes (default: $MY_MINUTES)"
                   echo "  -n     total_tasks        Total number of tasks"
                   echo "  -N     nodes              Number of nodes"
-                  echo "  -tpn                tpn   Tasks per node"
-                  echo "  --tasks-per-node    tpn   Tasks per of nodes"
-                  echo "  --ntasks-per-node   tpn   Tasks per of nodes"
-                  echo "  $Q     queue_name         sets queue to named queue (default: $Q $MY_QUEUE)"
+                  echo "  -tpn   TpN                Tasks per node (=TpN), --long_forms below also available"
+                  echo "                            --tasks-per-node    TpN"
+                  echo "                            --ntasks-per-node   TpN"
+                  echo "  -p     queue_name         sets queue to named queue (default: -p $MY_QUEUE)"
                   echo "  -r                        (no res. name) find and use my ACTIVE reservation (no questions)"
                   echo "  -r     reservation_name   requests use of a specific reservation"
                   echo "  -r     none               idev always automatically looks for reserations"
@@ -774,7 +785,7 @@ while (( "$#" )); do
                   echo "  -queues                   lists queues for the system"
                   echo "  -pselect                  presents slurm queue to select from"
                   echo "  -qselect                  presents slurm queue to select from"
-                  echo "  -- <other SLURM options>  MUST occur after ALL idev options (above and below)"
+                  echo "  -- <other SLURM options>  MUST occur after ALL idev options"
 
                   echo ""
                   echo "  -help [help, --help, -h]  displays (this) help message"
@@ -782,15 +793,16 @@ while (( "$#" )); do
                   echo ""
                   echo "  Syntax and Examples:"
                   echo "       Syn: idev     (defaults: 1 node, 16 tasks, $MY_MINUTES min., default account.)"
-                  echo "       Syn: idev  [-help | -v | -uninstall] "
+                  echo "       Syn: idev  [-help | -v ] "
                   echo "       Syn: idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
-                  echo "                  [-n tasks]  [-N nodes  -n tasks]  "
+                  echo "                  [-N nodes  -tpn TpN ]  "
                   echo ""
-                  echo "       ex1: idev"
-                  echo "       ex2: idev -help"
-                  echo "       ex3: idev -p development -m 90       -A A-ccvis        -n 16"
-                  echo "       ex4: idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -n 16 "
-                  echo "       ex5: idev -p normal -- -w c560-102 -v"
+                  echo "       ex1: idev -help"
+                  echo "       ex2: idev"
+                  echo "       ex3: idev -m 60"
+                  echo "       ex4: idev -p development -m 90       -A A-ccvis"
+                  echo "       ex5: idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -tpn 48 "
+                  echo "       ex6: idev -p normal   -- -w c560-102"
 
                   echo ""
                   echo "Idev ssh's to compute nodes with the -Y option to allow X forwarding for debugging."
@@ -809,14 +821,16 @@ while (( "$#" )); do
                   echo "        Note: all SSH_xx variables are removed by default so that all interactive "
                   echo "              ssh terminal sessions have their correct SSH_xx values for a new session."
 #                 echo ""
-                  do_exit=yes; OPT_ERR=0
+                  do_exit="information_only"; OPT_ERR=0
+                  break
    fi
 
 #                                           Version Info
    if [[ x$1 == x-version || x$1 == x--version || x$1 == x-v ]]; then
                   known_option=yes
                   echo "Version          : $IDEV_VER"
-                  do_exit=yes; OPT_ERR=0
+                  do_exit="information_only"; OPT_ERR=0
+                  break
    fi
 #                                           Remove login setup from bash/tcsh files, remove $HOME/.idevrc
    if [[ x$1 == x-uninstall || x$1 == x--uninstall ]]; then
@@ -1090,7 +1104,7 @@ while (( "$#" )); do
 
 #  last check!
    if [[ $known_option == "no" ]]; then
-                     echo -e "\n ->ERROR: **The $1 option is not known."
+                     echo -e "\n ->ERROR: **The \"$1\" option is not known."
                      echo -e "            To see options, execute: idev -help."
                      do_exit=yes; OPT_ERR=2
 
@@ -1101,6 +1115,16 @@ while (( "$#" )); do
 done
 
 ############################################end idev options
+
+#
+#   May need to exit here for help, version, unknown option, or option error
+#   (Exit before asking questions about account, queue, etc. defaults.)
+#
+#------------------------------------------------------------------------------
+[[ $do_exit == "information_only" ]] && exit $OPT_ERR
+[[ $do_exit == "yes" ]] && exit $OPT_ERR
+#------------------------------------------------------------------------------
+#
 
 ############################################beg queue select
 ###SELECT QUEUE vvv
@@ -2011,20 +2035,6 @@ fi
 
 ###################################  Project INFO End
 
-#################################### Latest Setup Check Begin
-
-#               Make sure user is using the latest setup.
-   if [[ ! -z $idev_login_ver ]] ; then                        #if defined-> using earlier version
-      echo " We have improved idev! But it will be necessary"  #using IDEV_SETUP_VER now
-      echo " to uninstall your initial idev setup. Please execute:"
-      echo ""
-      echo "              idev -uninstall"
-      echo ""
-      echo " AND THEN LOGOUT. Login and then execute \"idev\" to reinstall."
-      echo " "
-      exit
-   fi
-#################################### Setup Check End
 
 #################################### List Options Begin
    for i in ${!res_list[*]}; do
@@ -2032,7 +2042,7 @@ fi
    done
 #################################### List Options End
 
-#exit
+
 
 ####################################beg Submit SLURM batch job
 

@@ -61,11 +61,12 @@ use File::Basename;
 #   Requested by Robert Mclay.                             01/17/2017
 #   Don't remove MANPATH from environment
 #   By requested.                                          07/07/2017
-#
-#   Exclude all shell functions from becoming part of 
-#   part of environment on compute node. They should be
-#   defined and renewed in a .bashrc file.                 09/06/2018
 
+#   Includes BASH functions of the form BASH_FUNC_XX()
+#   or BASH_FUNC_XX%%, where XX is not "ml" or "module"
+#   See areas manipulating "exported_func" for details.
+#   Change by Rober McLay                                  06/13/2019
+#
 sub env_replication(@);
 sub tcsh_login_insertion(@);
 sub bash_login_insertion(@);
@@ -204,23 +205,29 @@ sub env_replication(@){
    #print "max=$lenmax for $mykey\n";
 
 
+   my %exported_func;
+
    foreach $key (keys(%ENV)){
       $value = $ENV{$key};
       $value =~  s/\n|\r//g;
 
-      #   Make sure no shell functions are included:
-      #   Shell functions have form word=(){...}
-      #   Exclude any line which has a value that begins with "()"
-      if( $value !~ /^\(\)/ ){
-         if( $exclude{$key} ){
-            $unmyenv{$key} = $value;
-           #printf("%-$lenmax.${lenmax}s: $unmyenv{$key}\n",$key);
-         }
-         else {
-           #printf("%-$lenmax.${lenmax}s: $ENV{$key}\n",$key);
-            $myenv{$key} = $value;
-           #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
-         }
+      if( $exclude{$key} ){
+         $unmyenv{$key} = $value;
+        #printf("%-$lenmax.${lenmax}s: $unmyenv{$key}\n",$key);
+      }
+      elsif ( $key =~ /^BASH_FUNC_/){
+        $k = $key;
+        $k =~ s/^BASH_FUNC_//;
+        $k =~ s/\(\)$//;
+        $k =~ s/%%$//;
+        $value =~ s/^\(\) //;
+        $value =~ s/}$/;}/;
+        $exported_func{$k} = $value;
+      }
+      else {
+        #printf("%-$lenmax.${lenmax}s: $ENV{$key}\n",$key);
+         $myenv{$key} = $value;
+        #printf("%-$lenmax.${lenmax}s: $myenv{$key}\n",$key);
       }
    }
 
@@ -243,6 +250,11 @@ sub env_replication(@){
      #print FILE "$CMD $key${EQIV}\"$myenv{$key}\"\n"; 
       print FILE "$CMD $key${EQIV}\'$myenv{$key}\'\n";
    }
+   foreach $key (keys(%exported_func)) {
+     $value = $exported_func{$key};
+     print FILE "function $key () $value; if [ -n \"\${BASH_VERSION+x}\" ]; then export -f $key; fi \n";
+   }
+
   #foreach $key (keys(%unmyenv)){
   #   print FILE "$UNCMD $key\n";
   #}
