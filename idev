@@ -200,7 +200,7 @@
 #  IDEV_SSH_ARGS="default <args>" makes args the new default
 #  ("default" is allowed). Default value appears as idev_ssh_args in .idevrc)
 #  Note, "" or "default" allows for a default of no argument.
-#                                                 09/10/2019  Kent Milfeld
+#                                                 10/01/2019  Kent Milfeld
 #
 #------------------------------------------------------------------------------
 #
