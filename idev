@@ -1,4 +1,6 @@
 #!/bin/bash
+# -*- shell-script -*-
+#
 #set -x
 # User is forces to use either SGE or SLURM options, except
 # -p and -q can both be used for either batch system
@@ -169,13 +171,41 @@
 #  or option error, so that "defaults" questioning is not performed.
 #  Informational trap exit  processed without "graceful exit" notice.
 #  http://redsymbol.net/articles/bash-exit-traps/
-#                                                 12/03/2019  Kent Milfeld
+#                                                 03/12/2019  Kent Milfeld
 #  Added Frontera
-#                                                 13/06/2019  Kent Milfeld
+#                                                 09/06/2019  Kent Milfeld
+#  Inserted Robert McLay's getopt parsing for options.  Uses can now
+#  Can now specify option numbers wo space  (now -n1 works for -n 1)
+#  Can use single or double "-" for long options (--qselect works for -qselect)
+#  New options for job begin email
+#  -e <e-address>   (-e now requires email address)
+#  -E               (new, uses email address in ~./idevrc)
+#
+#                                                 09/09/2019  Kent Milfeld
+#  -R added, not argument, Finds reservation for user
+#                                                 09/10/2019  Kent Milfeld
+#  Fixed END_DASH problem.
+#  If an option requiring an argument is present without the option and
+#  it followd by another option getopt thinks it is the argument.
+#  (as in "idev -n  -N 2")
+#  Quick and dirty fix: Each option requiring an argument tests to make sure 
+#  the next $@ value starts witht "-".  If there is, a break in argument 
+#  processing occurs, the error is report, and an exit occurs.
+#
+#  These args are hardcoded in ssh batch into compute node:
+#  -Y -o "StrictHostKeyChecking no" 
+#  There is a -A argument that is there by default (MY_SSH_ARGS="-A")
+#  This can be changed by setting IDEV_SSH_ARGS
+#  IDEV_SSH_ARGS="<args>" forces MY_SSH_ARGS to be "<args>" ("" allowed).
+#  IDEV_SSH_ARGS="default <args>" makes args the new default
+#  ("default" is allowed). Default value appears as idev_ssh_args in .idevrc)
+#  Note, "" or "default" allows for a default of no argument.
+#                                                 09/10/2019  Kent Milfeld
+#
 #------------------------------------------------------------------------------
 #
 #               Versions Number
-   IDEV_VER=1.5.6
+   IDEV_VER=1.5.7
 
    IDEV_SYM="->"
    TACC_SUPPORTED_SYSTEM="stampede2, ls5, wrangler, hikari, maverick2, frontera"
@@ -270,9 +300,9 @@ function ctrl_c() {
         else
                          #User control-c'd out before job launched.
            echo -e "$exit_msg"
-          #echo -e " ->  idev: no session created, gracefully exiting...\n"
+          #echo -e " -> idev: no session created, gracefully exiting...\n"
            [[ "$do_exit" == "information_only" ]] && exit
-           echo -e " ->  idev command is ending with no interactive session created.\n"
+           echo -e " -> idev command is ending with no interactive session created.\n"
            exit
         fi
 } # END TRAP Function
@@ -528,8 +558,8 @@ res_list[${pr_no_rc}]=` printf "$res_format2"  "Defaults file"   "$S_idevrc"`
                    if [[ "$MY_H_RT" =~ $regex ]]; then
                      secs=$((${BASH_REMATCH[1]}*3600+${BASH_REMATCH[2]}*60+${BASH_REMATCH[3]}))
                    else
-                     echo " ->ERROR:  default time syntax: time <#>."
-                     echo "           Value found: \"$MY_TIME\""
+                     echo " -> ERROR:  default time syntax: time <#>."
+                     echo "            Value found: \"$MY_TIME\""
                      exit
                    fi
                    MY_MINUTES=$(( secs / 60 ))
@@ -582,13 +612,34 @@ res_list[${pr_no_rc}]=` printf "$res_format2"  "Defaults file"   "$S_idevrc"`
         MY_ADDRESS="${MY_ADDRESS%\\n}"               # get rid of return
         MY_ADDRESS=`echo "$MY_ADDRESS" | sed 's/^ *//g' | sed 's/ *$//g'` # get rid of spaces
         export MY_ADDRESS
-
-        res_format=$res_format3e
-        nchars=${#MY_ADDRESS}
-        [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-        res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
      fi
 
+     MY_SSH_ARGS="-A"
+     grep -Pq "idev_ssh_args${MID}\s" $HOME/.idevrc
+     if [[ $? == 0 ]]; then
+        RC_SSH_ARGS=`grep -P "idev_ssh_args${MID}\s" $HOME/.idevrc | sed "s/idev_ssh_args${MID}\s//"`
+        RC_SSH_ARGS="${RC_SSH_ARGS%\\n}"               # get rid of return
+     fi
+
+     if [[ -z ${IDEV_SSH_ARGS+x} ]]; then   #unset
+        MY_SSH_ARGS="-A"
+        [[ ! -z ${RC_SSH_ARGS+x} ]] && MY_SSH_ARGS=$RC_SSH_ARGS
+        export MY_SSH_ARGS
+     else
+        if [[ ${IDEV_SSH_ARGS} =~ default ]]; then   #set
+           MY_SSH_ARGS=${IDEV_SSH_ARGS#default}; #Remove prefix
+           cp -p $HOME/.idevrc  $HOME/.idevrc.$$
+           if [[ -z ${RC_SSH_ARGS+x} ]]; then    #set
+              echo "idev_ssh_args${MID} $MY_SSH_ARGS" >> $HOME/.idevrc
+           else
+              sed -i "s/^idev_ssh_args${MID}.*/idev_ssh_args${MID} $MY_SSH_ARGS/"       .idevrc
+           fi 
+
+        else 
+           MY_SSH_ARGS=$IDEV_SSH_ARGS
+        fi
+        export MY_SSH_ARGS
+     fi
 
                         # Look for ALL idev_tpn_<queue name>_<this machine> pairs
                         # Create array.  If size not zero and successful grep,  change idevrc_tpn to "set"
@@ -678,8 +729,6 @@ sleep_after_run=7
 
 case $MY_SYS in
 
-   maverick)
-             ;;
 
    maverick2)
              ;;
@@ -691,10 +740,6 @@ case $MY_SYS in
    stampede2)
              DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
              ;;
-
-#   wrangler)
-#             nothing here
-#             ;;
 
         ls5)
              if [[ $TACC_SLURM_CONF =~ _LG ]]; then
@@ -726,396 +771,338 @@ esac
 
 ############################################end system defaults
 
+echo -e "\n NOTE: \"->\" are idev statements. \"-->\" are TACC/SLURM filter statements.\n"
+
+
 ############################################beg idev options
 do_exit=no
 check_project=yes
 cmd_args=$@
 
-#   #cmd Get command line arguments -- they override everything
+#cmd line arguments -- they override everything
+                          ARG_IS_DASH=no
+                      HAS_double_dash=no
+
+[[ $@ =~ ' -- ' ]] && HAS_double_dash=yes   #Need to know if command line has a --
+                                            #Getopt puts one at end if user doesn't.
+
+regex="^-"   #used for detecting an option/argument that begins with a "-".
+
 OPT_ERR=0
 
-while (( "$#" )); do
+OPTS=`getopt -a -o A:m:n:N:r:e:t:p:hvER --long help,version,uninstall,rank0,queues,pselect,qselect,tpn:,tasks-per-node:,ntasks-per-node:, -n ' -> ERROR idev' -- "$@"`
 
-#                Non-installation sensitive options here
+if [ $? != 0 ] ; then 
+  echo " -> Failed parsing options." 
+  if [[ $HAS_double_dash == yes ]]; then
+    echo " -> ber that all slurm option must be placed after all idev options and a -- (e.g. idev -N1 -- <slurm options>)" >&2 
+    echo " -> Any options appearing after \"--\" are handed directly to slurm (e.g. idev -N1 -- <pass-through slurm options>)" >&2 
+    echo " -> These are not checked by idev and should not override idev options." >&2 
+  fi
+  exit 1 
+fi
 
-   known_option=no
+[[ $IDEV_DEBUG == ON ]] && echo " -> DEBUG: Options getopt found: $OPTS"
+eval set -- "$OPTS"
 
-   if [[ x$1 == x-help ||  x$1 == x--help  || x$1 == x-h || x$1 == xhelp ]]; then
-                  known_option=yes
-                  echo ""
-                  echo ""
-                  echo "Usage:  idev [OPTIONS]"
-                  echo " "
-                  echo "idev creates an interactive session on a compute node"
-                  echo "for executing serial, openmp-parallel, or mpi-parallel"
-                  echo "code as you would in a batch job."
-                  echo "Supported systems: $TACC_SUPPORTED_SYSTEM."
-                  echo ""
-                  echo "A single node is used by default. The project listed in \$HOME/.idevrc is charged."
-                  echo "Options can be in any order."
-                  echo ""
-                  echo "On TACC systems:"
-                  echo "Compute nodes in the developement queue allow MPI compilation and execution."
-                  echo " <<On Stampede MPI mpicc/mpif90 compilers do not work* on compute nodes in other queues."
-                  echo "                            * missing license file or libraries when compiling."
-                  echo "  Use a login node window for MPI compiling, and an idev window for running."
-                  echo "  Other TACC systems allow MPI compilation and execution in any queue.>>"
-                  echo " "
-                  echo "OPTIONS:"
-                  echo " OPTION  ARGUMENTS          DESCRIPTION"
-                  echo ""
-                  echo "  -A     account_name       sets account name (default: -A $MY_ACCOUNT)"
-                  echo "  -m     minutes            sets time in minutes (default: $MY_MINUTES)"
-                  echo "  -n     total_tasks        Total number of tasks"
-                  echo "  -N     nodes              Number of nodes"
-                  echo "  -tpn   TpN                Tasks per node (=TpN), --long_forms below also available"
-                  echo "                            --tasks-per-node    TpN"
-                  echo "                            --ntasks-per-node   TpN"
-                  echo "  -p     queue_name         sets queue to named queue (default: -p $MY_QUEUE)"
-                  echo "  -r                        (no res. name) find and use my ACTIVE reservation (no questions)"
-                  echo "  -r     reservation_name   requests use of a specific reservation"
-                  echo "  -r     none               idev always automatically looks for reserations"
-                  echo "                            and asks you to use an ACTIVE res. none==don't look/ask."
-                  echo "                            (use    scontrol show reserations to see reservation details)"
-                  echo "  -e     email_address      notify when job begins, uses idev_email_address${MID} in "
-                  echo "                            \$HOME/.idevrc if no email_address is supplied."
+while true; do
+  case "$1" in
+    -h|--help)
+       echo ""
+       echo ""
+       echo "Usage:  idev [OPTIONS]"
+       echo " "
+       echo "idev creates an interactive session on a compute node"
+       echo "for executing serial, openmp-parallel, or mpi-parallel"
+       echo "code as you would in a batch job."
+       echo "Supported systems: $TACC_SUPPORTED_SYSTEM."
+       echo ""
+       echo "Idev uses a single node by default and charges the project in \$HOME/.idevrc."
+       echo "Options can be in any order."
+       echo ""
+       echo "On TACC systems:"
+       echo "Compute nodes in the developement queue allow MPI compilation and execution."
+       echo " <<On Stampede MPI mpicc/mpif90 compilers do not work* on compute nodes in other queues."
+       echo "                            * missing license file or libraries when compiling."
+       echo "  Use a login node window for MPI compiling, and an idev window for running."
+       echo "  Other TACC systems allow MPI compilation and execution in any queue.>>"
+       echo " "
+       echo "OPTIONS:"
+       echo " OPTION  ARGUMENTS          DESCRIPTION"
+       echo ""
+       echo "  -A     account_name       sets account name (default: -A $MY_ACCOUNT)"
+       echo "  -m     minutes            sets time in minutes (default: $MY_MINUTES)"
+       echo "  -n     total_tasks        Total number of tasks"
+       echo "  -N     nodes              Number of nodes"
+       echo "  -tpn   tpn                Tasks per node"
+       echo "                            -tasks-per-node|--tasks-per-node   tpn  (-tpn alternate)"
+       echo "                            -ntasks-per-node|--ntasks-per-node tpn  (-tpn alternate)"
+       echo "  $Q     queue_name         sets queue to named queue (default: $Q $MY_QUEUE)"
+       echo "  -R                        Finds a reservation for the user."
+       echo "  -r     reservation_name   requests use of a specific reservation"
+       echo "  -r     none               idev always automatically looks for reserations"
+       echo "                            and asks you to use an ACTIVE res. none==don't look/ask."
+       echo "                            (use    scontrol show reserations to see reservation details)"
+       echo "  -E                        notify when job begins"
+       echo "                            uses email address idev_email_address${MID} in \$HOME/.idevrc"
+       echo "  -e     email_address      notify when job begins, cmd line email address required."
+       echo "  -t     hh:mm:ss           sets time to hh:mm:ss (default: 00:${MY_MINUTES}:00, 30 min.)"
+       echo ""
+       echo "  -queues                   lists queues for the system"
+       echo "  -pselect                  presents slurm queue to select from"
+       echo "  -qselect                  presents slurm queue to select from"
+       echo "  -- <other SLURM options>  MUST occur after ALL idev options (above and below)"
 
-                  echo "  -t     hh:mm:ss           sets time to hh:mm:ss (default: 00:${MY_MINUTES}:00, 30 min.)"
-                  echo ""
-                  echo "  -queues                   lists queues for the system"
-                  echo "  -pselect                  presents slurm queue to select from"
-                  echo "  -qselect                  presents slurm queue to select from"
-                  echo "  -- <other SLURM options>  MUST occur after ALL idev options"
+       echo ""
+       echo "  -h, --help,               displays (this) help message"
+       echo "  -v, --version             output version information and exit"
+       echo ""
+       echo "  All non-single character options can start with \'-\' or \'--\'. "
+       echo ""
+       echo "  Syntax and Examples:"
+       echo "       Syn: idev     (defaults: 1 node, 16 tasks, $MY_MINUTES min., default account.)"
+       echo "       Syn: idev  [--help | -v | -uninstall] "
+       echo "       Syn: idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
+       echo "                  [-n tasks]  [-N nodes  -n tasks]  "
+       echo ""
+       echo "       ex1: idev"
+       echo "       ex2: idev --help"
+       echo "       ex3: idev -p development -m 90       -A AB-ccviss"
+       echo "       ex4: idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -n 16 "
+       echo "       ex5: idev -p normal -- -w c560-102 -v"
 
-                  echo ""
-                  echo "  -help [help, --help, -h]  displays (this) help message"
-                  echo "  -v         [ --version ]  output version information and exit"
-                  echo ""
-                  echo "  Syntax and Examples:"
-                  echo "       Syn: idev     (defaults: 1 node, 16 tasks, $MY_MINUTES min., default account.)"
-                  echo "       Syn: idev  [-help | -v ] "
-                  echo "       Syn: idev  [-p queue]  [-m min.] [-t time ]  [-A acct] \ "
-                  echo "                  [-N nodes  -tpn TpN ]  "
-                  echo ""
-                  echo "       ex1: idev -help"
-                  echo "       ex2: idev"
-                  echo "       ex3: idev -m 60"
-                  echo "       ex4: idev -p development -m 90       -A A-ccvis"
-                  echo "       ex5: idev -p normal      -t 00:90:00 -A TG-STA123 -N 2 -tpn 48 "
-                  echo "       ex6: idev -p normal   -- -w c560-102"
+       echo ""
+       echo "Idev ssh's to compute nodes with the -Y option to allow X forwarding for debugging."
+       echo ""
+       echo "Insert  \"idev_time${MID} MINUTES\",  \"idev_queue${MID} QUEUE\" or  \"idev_project${MID} PROJECT\" "
+       echo "       without quotes, one item per line in ~/.idevrc to set your own default "
+       echo "       time, queue and/or project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
+       echo "       E.g.  idev_time${MID} 60  <new line> idev_queue${MID} normal " 
+       echo ""
+       echo "Insert  \"idev_email_address${MID} MYADDRESS\", without quotes in ~/.idevrc so you can use -e without"
+       echo "        an address option on the idev command line. Substitue your email address for MYADDRESS."
+       echo ""
+       echo "Insert  \"idev_rm_env${MID} VAR_LIST\" "
+       echo "        in ~/.idevrc, where VAR_LIST is a space separated list of environment variables "
+       echo "        not to be replicated from the job environment initialized by idev.  "
+       echo "        Note: all SSH_xx variables are removed by default so that all interactive "
+       echo "              ssh terminal sessions have their correct SSH_xx values for a new session."
+       echo ""
+       echo "Insert  \"idev_ssh_args${MID} ARGS\" "
+       echo "        in ~/.idevrc, where ARGS is a space separated list of ssh arguments for the terminal window."
+       echo "        -Y and -o \"StrictHostKeyChecking no\" are hard coded arguments.  -A is now the default  "
+       echo "        (For large-scale MV2 MPI executions on Frontera) -A may need to be replaced by setting   "
+       echo "        IDEV_SSH_ARGS. If the argument value is \"default <anything>\" this becomes the new user"
+       echo "        default and will appear as the value for idev_ssh_args${MID} in .idevrc"
 
-                  echo ""
-                  echo "Idev ssh's to compute nodes with the -Y option to allow X forwarding for debugging."
-                  echo ""
-                  echo "Insert  \"idev_time${MID} MINUTES\",  \"idev_queue${MID} QUEUE\" or  \"idev_project${MID} PROJECT\" "
-                  echo "       without quotes, one item per line in ~/.idevrc to set your own default "
-                  echo "       time, queue and/or project.  (Substitute values for MINUTES, QUEUE and PROJECT.)"
-                  echo "       E.g.  idev_time${MID} 60  <new line> idev_queue${MID} normal " 
-                  echo ""
-                  echo "Insert  \"idev_email_address${MID} MYADDRESS\", without quotes in ~/.idevrc so you can use -e without"
-                  echo "        an address option on the idev command line. Substitue your email address for MYADDRESS."
-                  echo ""
-                  echo "Insert  \"idev_rm_env${MID} VAR_LIST\" "
-                  echo "        in ~/.idevrc, where VAR_LIST is a space separated list of environment variables "
-                  echo "        not to be replicated from the job environment initialized by idev.  "
-                  echo "        Note: all SSH_xx variables are removed by default so that all interactive "
-                  echo "              ssh terminal sessions have their correct SSH_xx values for a new session."
-#                 echo ""
-                  do_exit="information_only"; OPT_ERR=0
-                  break
-   fi
+       do_exit="information_only"; OPT_ERR=0
+       shift;;
+    -v|--version)
+      echo "Version          : $IDEV_VER"
+      do_exit="information_only"; OPT_ERR=0
+      shift;;
+    --uninstall)
+      insert_option=uninstall
+      shift;;
+    -n)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      opt_tasks=set
+      opt_total_tasks=set
+      opt_TASK_count=$(( $opt_TASK_count + 1 ))
+      shift; MY_TOTAL_TASKS=$1;  total_tasks_set=yes
+      res_list[${pr_no_n}]=`  printf "$res_format3"  "Total tasks"     "$MY_TOTAL_TASKS"     "$S_cmd_line -n"`
+      shift;;
+    --tasks-per-node|--ntasks-per-node)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      opt_tasks=set
+      hold=$1
+                          #only count -tpn or --tasks-per-node once
+      [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
+      shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
+      res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tasks-per-node"`
+      [[ x$hold == x--tasks-per-node   ]] && tpn_type="--tasks-per-node"
+      [[ x$hold == x--ntasks-per-node  ]] && tpn_type="--ntasks-per-node"
+      shift;;
+ --tpn)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      opt_tasks=set
+                          #only count -tpn or --tasks-per-node once
+      [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
+      shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
+      res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tpn"`
+      tpn_type="-tpn"
+      shift;;
+    -N)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      opt_N=set
+      #opt_NODE_count=$(( $opt_NODE_count + 1 ))
+      shift; MY_NODES=$1; opt_nodes=set;
+      opt_NODE_count=$1
+      res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_cmd_line -N"`
+      shift;;
+    -p)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift; MY_QUEUE=$1
+      CMDLINE_QUEUE=$MY_QUEUE
+      queue_from=cmdline
+      res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -p"`
+      shift;;
+    -q)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift; MY_QUEUE=$1
+      CMDLINE_QUEUE=$MY_QUEUE
+      queue_from=cmdline
+      res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -q"` 
+      shift;;
+    --queues)
+      list_node_queue=yes
+      shift;;
+    --qselect|--pselect)
+      qselect=yes
+      shift;;    
+    -A)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift; IDEV_ACCOUNT="-A  $1"
+      account=$1
+      check_project=no
+      res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$account"         "$S_cmd_line -A"`
+      shift;;
+    -t)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift; MY_H_RT="h_rt=$1"
+      regex='0*([[:digit:]]+)[:::]0*([[:digit:]]+)[:::]0*([[:digit:]]+)'
+      if [[ "$MY_H_RT" =~ $regex ]]; then
+          secs=$((${BASH_REMATCH[1]}*3600+${BASH_REMATCH[2]}*60+${BASH_REMATCH[3]}))
+      else
+        echo "-> ERROR:  h_rt (syntax hr:min:sec) requires value for hr, min and sec entry."
+        echo "           Value found: \"$MY_H_RT\""
+        exit
+      fi
+      job_sleep=$secs
+      MY_hhmmss_TIME=$1
+      res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (hh:mm:ss)" "$MY_hhmmss_TIME"            "$S_cmd_line -t"`
+      shift;;
+    -m)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift; MY_MINUTES=$1
+             MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+             MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
+      job_sleep=$(( $MY_MINUTES * 60 ))
+      res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (minutes)"  "$MY_MINUTES"         "$S_cmd_line -m"`
+      shift;;
+    --rank0)
+      echo -e "\n **The -rank0 option is not allowed on $MY_SYS."
+      echo -e "     It is not a valid $BATCH_SYS option."
+      echo -e "     See options, execute: idev -help"
+      do_exit=yes; OPT_ERR=1
+      shift;;
+    -R)
+      # Find reservation for user
+      RESERVATION_CONTROL="FIND_IT"
+      echo " -> Reservation      : Will try to find a reservation set for you."
+      shift;;
+    -r)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      # Found reservation request with name
+      shift
+      if [[ $1 =~ none ]]; then
+          RESERVATION_CONTROL="NONE"
+          MY_RESERVATION=""
+          echo " -> Reservation      : $1  -- disregard any reservation"
+      else
+        RESERVATION_CONTROL="USER_SET"
+        RESERVATION_NAME=$1
+        MY_RESERVATION="--reservation=$1"
+        echo " -> Reservation      : $1  -- will attempt to use this reservation"
+        MY_RESERVATION="#SBATCH $MY_RESERVATION"
+      fi
+      shift;;
+    -E)
+      if [[ $MY_ADDRESS == "none" ]] ; then
+          echo " -> Cmd line: $0 $cmd_args"
+          echo " -> ERROR: -E option requires email address found in \$HOME/.idevrc"
+          echo "           add new line of form:  idev_email_address${MID} <me>@<domain.x>"
+          do_exit=yes; OPT_ERR=1
+          break # stop parsing
+      fi
+      if ! [[ $MY_ADDRESS =~ @ ]]; then
+          echo -e "\n -> ERROR: ** Detected improper email address -- no @ found."
+          echo -e "                  Found email address $MY_ADDRESS."
+          echo -e "                  Check value of idev_email_address in ~/.idevrc."
+          do_exit=yes; OPT_ERR=1
+          break # stop parsing
+      fi
+      res_format=$res_format3e
+      nchars=${#MY_ADDRESS}
+      [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+     #res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
+      res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -E; ~/.idevrc addr"`
+      
+      using_rc_email_address=yes
 
-#                                           Version Info
-   if [[ x$1 == x-version || x$1 == x--version || x$1 == x-v ]]; then
-                  known_option=yes
-                  echo "Version          : $IDEV_VER"
-                  do_exit="information_only"; OPT_ERR=0
-                  break
-   fi
-#                                           Remove login setup from bash/tcsh files, remove $HOME/.idevrc
-   if [[ x$1 == x-uninstall || x$1 == x--uninstall ]]; then
-                  known_option=yes
-                  insert_option=uninstall
-   fi
+      MY_EMAIL="#SBATCH --mail-type=BEGIN --mail-user=$MY_ADDRESS"
+      shift;;
+    -e)
+      [[ $2 =~ $regex ]] && ARG_IS_DASH=yes ED1=$1 ED2=$2 && break  # Forgotten Argument
+      shift  
+      #Check for email address
+      if [[ "$1" =~ @ ]]; then
+          MY_ADDRESS="$1"
+          using_rc_email_address=no
 
-   if [[ x$1 == x-n ]]; then
-                  known_option=yes
-                  opt_tasks=set
-                  opt_total_tasks=set
-                  opt_TASK_count=$(( $opt_TASK_count + 1 ))
-                  shift; MY_TOTAL_TASKS=$1;  total_tasks_set=yes
-                   res_list[${pr_no_n}]=`  printf "$res_format3"  "Total tasks"     "$MY_TOTAL_TASKS"     "$S_cmd_line -n"`
-   fi
+          res_format=$res_format3e
+          nchars=${#MY_ADDRESS}
+          [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+          res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
 
-   if [[ x$1 == x--tasks-per-node || x$1 == x--ntasks-per-node ]]; then
-                  known_option=yes
-                  opt_tasks=set
-                  hold=$1
-                                      #only count -tpn or --tasks-per-node once
-                  [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
-                  shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
-                  res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tasks-per-node"`
-                  [[ x$hold == x--tasks-per-node   ]] && tpn_type="--tasks-per-node"
-                  [[ x$hold == x--ntasks-per-node  ]] && tpn_type="--ntasks-per-node"
-   fi
+      else
+        #line does not have email address
+        echo " ->Cmd line: $0 $cmd_args"
+        echo -e "\n -> ERROR: ** Detected improper email address for -e option -- no @ found."
+        echo    "                Fix email address."
+        echo    ""
+        echo "                   Alternate solution: Use -E option and include address in \$HOME/.idevrc."
+        echo "                   (* add new line of form:  idev_email_address${MID} <me>@<domain.x> )"
+        do_exit=yes; OPT_ERR=1
+        break # stop parsing
+      fi
 
-   if [[ x$1 == x-tpn ]]; then
-                  known_option=yes
-                  opt_tasks=set
-                                      #only count -tpn or --tasks-per-node once
-                  [[ $opt_tasks_per_node != set ]] && opt_TASK_count=$(( $opt_TASK_count + 1 ))
-                  shift; MY_TASKS_PER_NODE=$1;  opt_tasks_per_node=set
-                  res_list[${pr_no_tpn}]=`printf "$res_format3l" "Tasks per Node" "$MY_TASKS_PER_NODE"  "$S_cmd_line --tpn"`
-                  tpn_type="-tpn"
-   fi
+      using_rc_email_address=yes
+      MY_EMAIL="#SBATCH --mail-type=BEGIN --mail-user=$MY_ADDRESS"
+      shift;;
 
-
-   if [[ x$1 == x-N ]]; then
-                  known_option=yes
-                  opt_N=set
-                 #opt_NODE_count=$(( $opt_NODE_count + 1 ))
-                  shift; MY_NODES=$1; opt_nodes=set;
-                  opt_NODE_count=$1
-                  res_list[${pr_no_N}]=`  printf "$res_format3"  "Nodes"           "$MY_NODES"           "$S_cmd_line -N"`
-   fi
-
-   if [[ x$1 == x-p ]]; then
-                  known_option=yes
-                   shift; MY_QUEUE=$1
-                   CMDLINE_QUEUE=$MY_QUEUE
-                   queue_from=cmdline
-                  res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -p"`
-
-   fi
-
-
-   if [[ x$1 == x-q ]]; then
-                  known_option=yes
-                   shift; MY_QUEUE=$1
-                   CMDLINE_QUEUE=$MY_QUEUE
-                   queue_from=cmdline
-                   res_list[${pr_no_que}]=`printf "$res_format3"  "Queue"           "$MY_QUEUE"           "$S_cmd_line -q"` 
-
-   fi
-
-   if [[ x$1 == x-queues ]]; then
-                  known_option=yes
-                  list_node_queue=yes
-
-   fi
-
-   if [[ x$1 == x-qselect ]]; then
-                  known_option=yes
-                  qselect=yes
-   fi
-   if [[ x$1 == x-pselect ]]; then
-                  known_option=yes
-                  qselect=yes
-   fi
-
-   if [[ x$1 == x-A ]]; then
-                  known_option=yes
-                   shift; IDEV_ACCOUNT="-A  $1"
-                   account=$1
-                   check_project=no
-                   res_list[${pr_no_A}]=`  printf "$res_format3"  "Project"         "$account"         "$S_cmd_line -A"`
-
-   fi
-
-   if [[ x$1 == x-t ]]; then
-                  known_option=yes
-                   shift; MY_H_RT="h_rt=$1"
-                   regex='0*([[:digit:]]+)[:::]0*([[:digit:]]+)[:::]0*([[:digit:]]+)'
-                   if [[ "$MY_H_RT" =~ $regex ]]; then
-                     secs=$((${BASH_REMATCH[1]}*3600+${BASH_REMATCH[2]}*60+${BASH_REMATCH[3]}))
-                   else
-                     echo "->ERROR:  h_rt (syntax hr:min:sec) requires value for hr, min and sec entry."
-                     echo "          Value found: \"$MY_H_RT\""
-                     exit
-                   fi
-                   job_sleep=$secs
-                   MY_hhmmss_TIME=$1
-                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (hh:mm:ss)" "$MY_hhmmss_TIME"            "$S_cmd_line -t"`
-   fi
-
-   if [[ x$1 == x-m ]]; then
-                  known_option=yes
-                   shift; MY_MINUTES=$1
-                          MY_H_RT="h_rt=00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
-                          MY_hhmmss_TIME="00:${MY_MINUTES}:00 "  #SLURM accept more than 2 digits in this field.
-                   job_sleep=$(( $MY_MINUTES * 60 ))
-                   res_list[${pr_no_tm}]=` printf "$res_format3"  "Time (minutes)"  "$MY_MINUTES"         "$S_cmd_line -m"`
-   fi
-
-   if [[ x$1 == x-rank0 || x$1 == x--rank0 ]]; then
-                  known_option=yes
-                  echo -e "\n **The -rank0 option is not allowed on $MY_SYS."
-                  echo -e "     It is not a valid $BATCH_SYS option."
-                  echo -e "     See options, execute: idev -help"
-                  do_exit=yes; OPT_ERR=1
-   fi
-
-   if [[ x$1 == x-r ]]; then
-                  known_option=yes
-
-
-                   if [[ x$2 = x ]]; then
-                      # We are at the end of the line without a 
-                      # reservation name-- meaning we will look for any reservation.
-                      RESERVATION_CONTROL="FIND_IT"
-                      echo " -> Reservation      : Will search and request it for you."
-                   else
-                      if [[ x$2 =~ "x-" ]]; then
-                         # We have found the next option.  No reservation name
-                         # means we look for the reservation.
-                         RESERVATION_CONTROL="FIND_IT"
-                         echo " -> Reservation      : Will find it for you."
-                      else
-                         # Found reservation request with name
-                         shift
-                         if [[ $1 =~ none ]]; then
-                            RESERVATION_CONTROL="NONE"
-                            MY_RESERVATION=""
-                            echo " -> Reservation      : $1"
-                         else
-                            RESERVATION_CONTROL="USER_SET"
-                            RESERVATION_NAME=$1
-                            MY_RESERVATION="--reservation=$1"
-                            echo " -> Reservation      : $1"
-                            MY_RESERVATION="#SBATCH $MY_RESERVATION"
-                         fi
-                      fi
-
-                   fi
-
-   fi
-
-
-   if [[ x$1 == x-e ]]; then
-
-                  known_option=yes
-
-             #---------EMAIL
-                   # Check here for command option email_address
-                   # case 1  at end (with or without idevrc address
-                   if [[ "$#" == 1 ]]; then   # At end of arg list wo email addr: Must Use Default, if available
-                      if [[ $MY_ADDRESS == "none" ]] ; then
-
-                         echo " ->Cmd line: $0 $cmd_args"
-                         echo " ->ERROR: -e option requires email address on command line of form <me>@<domain.x>."
-                         echo "          (However, an address is not required if one is found in \$HOME/.idevrc. *)"
-                         echo "          (* add new line of form:  idev_email_address${MID} <me>@<domain.x> )"
-
-                         do_exit=yes; OPT_ERR=1
-                         break # stop parsing
-                      fi
-
-                      res_format=$res_format3e
-                      nchars=${#MY_ADDRESS}
-                      [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-                     #res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
-                      res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
-
-                      using_rc_email_address=yes
-             
-                   # case 2  not at end (with or without idevrc address)
-                   else
-                      
-                      shift  
-                             #Check for email address
-
-                             #line has email address
-                      if [[ "$1" =~ @ ]]; then
-                         MY_ADDRESS="$1"
-                         using_rc_email_address=no
-
-                         res_format=$res_format3e
-                         nchars=${#MY_ADDRESS}
-                         [[ $nchars -gt 12 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-                         res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e <address>"`
-
-                             #line does not have email address
-                      else
-                         set -- $1 "$@"   #Not an email address, unshift
-             
-                         if [[ $MY_ADDRESS == "none" ]] ; then  #OK no cmd line email -- Must have email from .idevrc
-
-                            echo " ->Cmd line: $0 $cmd_args"
-                            echo " ->ERROR: -e option requires email address on command line of form <me>@<domain.x>."
-                            echo "          (However, an address is not required if one is found in \$HOME/.idevrc. *)"
-                            echo "          (* add new line of form:  idev_email_address${MID} <me>@<domain.x> )"
-
-                            do_exit=yes; OPT_ERR=1
-                            break # stop parsing
-                         fi
-                         using_rc_email_address=yes
-
-#ISN't this covered above
-                         res_format=$res_format3e
-                         nchars=${#MY_ADDRESS}
-                         [[ $nchars -gt 40 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-                         res_list[${pr_no_e}]=`  printf "$res_format"   "Job begin email" "$MY_ADDRESS"   "cmdln: -e; ~/.idevrc addr"`
-
-                      fi
-                   fi      
-
-                   if ! [[ $MY_ADDRESS =~ @ ]]; then
-                     echo -e "\n ->ERROR: ** Detected improper email address -- no @ found."
-                     echo -e "                 Found email address $MY_ADDRESS."
-                     echo -e "                 Check command line or ~/.idevrc idev_email_address value."
-                     if [[ $using_rc_email_address == no ]]; then
-                       echo -e "               An email ADDRESS is REQUIRED with the -e option"
-                       echo -e "               (unless you specify one in ~/.idevrc; see idev -help)."
-                     fi
-                     do_exit=yes; OPT_ERR=1
-                     break # stop parsing
-                   fi
-
-                   MY_EMAIL="#SBATCH --mail-type=BEGIN --mail-user=$MY_ADDRESS"
-   fi
-
-   if [[ x$1 == x--* ]]; then
-                  known_option=yes
-                   #
-                                      #Make sure user does "-- --mem_bind= ..."
-                                      #rather than         "--mem_bind= ..."
-                                      #ALL arguments after -- are handed directly to SLURM
-                  if [[ x$1 != x-- ]]; then
-                     echo " ->ERROR: Found $1"
-                     echo "          SLURM Options must be preceeded by \"--\" option specifier"
-                     break
-                     do_exit=yes; OPT_ERR=2
-                  fi
-
-                  shift
-
-                  slurm_options="$*"
-                  IDEV_SLURM_ARGS="#SBATCH $slurm_options"
-                  nchars=${#slurm_options}
-                  res_format=$res_format3
-                 #[[ $nchars -gt 40 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-                 #res_list[${pr_no_sb}]=` printf "$res_format3"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
-                  [[ $nchars -gt 15 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
-                  res_list[${pr_no_sb}]=` printf "$res_format"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
-
-                  break  # stop parsing  All remaining arguments go directly into #SBATCH
-
-   fi
-
-#  last check!
-   if [[ $known_option == "no" ]]; then
-                     echo -e "\n ->ERROR: **The \"$1\" option is not known."
-                     echo -e "            To see options, execute: idev -help."
-                     do_exit=yes; OPT_ERR=2
-
-   fi
-
-   shift
-
+#  -- ) 
+    --) 
+      # getopt puts a "--" at end if the user does not (set IDEV_DEBUG to see this).
+      # Process only if user provided a " -- " in command line (and ignore if nothing after user --).
+      shift
+        if [[ x$1 != x ]] && [[ $HAS_double_dash == yes ]]; then
+          slurm_options="$*"
+          IDEV_SLURM_ARGS="#SBATCH $slurm_options"
+          nchars=${#slurm_options}
+          res_format=$res_format3
+          #[[ $nchars -gt 40 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+          #res_list[${pr_no_sb}]=` printf "$res_format3"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
+          [[ $nchars -gt 15 ]] && res_format=' -> %-17.17s: %-'${nchars}.${nchars}'s  (%-20.20s)'
+          res_list[${pr_no_sb}]=` printf "$res_format"  "SLURM options" "$slurm_options"       "$S_cmd_line --"`
+        fi
+      break ;;
+  #                THIS IS NOT NEEDED singe "-- )" finishes everything up.
+  # * ) 
+  #   echo "NOW DO I GET HERE****************************************************************************************"
+  #   break ;;
+  esac
 done
 
-############################################end idev options
+if [[ $ARG_IS_DASH == yes ]]; then
+  echo " -> ERROR: Failed parsing for these two items on command line: $ED1 $ED2."
+  echo " ->        The $ED1 requires an valid argument. Found $ED2, which is not valid."
+# echo " -> -- marks the beginning of explicit slurm options (as in: idev -m 60 -- <slurm options>)."
+  exit
+fi
 
+
+############################################end idev options
 #
 #   May need to exit here for help, version, unknown option, or option error
 #   (Exit before asking questions about account, queue, etc. defaults.)
@@ -1320,7 +1307,7 @@ RESERVATION_NAME_FOUND=no
  
     if [[ $res_totl -eq 0 ]]; then
        if [[ $RESERVATION_CONTROL == USER_SET ]]; then
-         echo " -> No reservation named $RESERVATION for $USER was found."
+         echo " -> No reservation named $RESERVATION_NAME for $USER was found."
          echo " -> Execute: \"scontrol show reservations\"  to see reservations."
          exit 1;
        fi
@@ -1348,7 +1335,7 @@ RESERVATION_NAME_FOUND=no
                    echo " -> ERROR:"
                    echo " -> idev reservation name (-r $RESERVATION_NAME) "
                    echo "    does not match slurm reservation name ($res_name)."
-                   echo "    Aborting idev.  Execute: \"idev -r\" and idev will find the name for you."
+                   echo "    Aborting idev.  Execute: \"idev -R\" and idev will find the name for you."
                    echo "    Execute: \"scontrol show reservations\"  to see reservations."
                    exit 1;
                 else           #good to go
@@ -1433,7 +1420,7 @@ RESERVATION_NAME_FOUND=no
           if [[ $RESERVATION_CONTROL == NO_OPTION ]]; then
              echo " "
              echo " -> Just a Note: Your reservation $res_name is INACTIVE."
-             echo " -> Use idev -r to use it when it becomes ACTIVE."
+             echo " -> Use idev -R to use it when it becomes ACTIVE."
              echo " -> To see when it begins, execute:  scontrol show reservations"
              echo " "
              RESERVATION_USE=no
@@ -1647,8 +1634,8 @@ fi
    #  Careful, Queue name may have a "*" at end. (means default queue)
 
    if [[ ${#Q_S_CpS_HWT[*]} == 0 ]]; then
-      echo " ->Cmd line: $0 $cmd_args"
-      echo " ->ERROR: The $MY_QUEUE queue is not known on this system."
+      echo " -> Cmd line: $0 $cmd_args"
+      echo " -> ERROR: The $MY_QUEUE queue is not known on this system."
       exit
    fi
   
@@ -1745,9 +1732,9 @@ tpn_set_by=unset
 #case 4
  if [[ $opt_NODE_count ==  0 && $opt_TASK_count >  0 ]]; then
 [[ -n $IDEV ]] && echo "case 4 opt_NODE_count= $opt_NODE_count  opt_TASK_Count $opt_TASK_count"
-   echo " ->Cmd line: $0 $cmd_args"
-   echo " ->ERROR: If total tasks (-n) and/or tasks per node (--tasks-per-node or -tpn)"
-   echo "           are specified, -N (nodes) MUST be specified."
+   echo " -> Cmd line: $0 $cmd_args"
+   echo " -> ERROR: If total tasks (-n) and/or tasks per node (--tasks-per-node or -tpn)"
+   echo "            are specified, -N (nodes) MUST be specified."
 
    exit
  fi
@@ -1845,18 +1832,18 @@ if [[ $MY_QUEUE =~ grace-serial ]]; then
             awk '$3 ~ /idv[0-9][0-9][0-9][0-9][0-9]/' | \
             awk '{print $8}' `
     echo ""
-    echo " ->ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
+    echo " -> ERROR:  Only one ONE idev interactive session allowed in $MY_QUEUE queue."
     echo ""
-    echo " ->You are executing idev again in the $MY_QUEUE queue."
-    echo "    In this queue only 1 idev interactive job is allowed."
-    echo "    You may have multiple windows open to the job (node) for an active"
-    echo "    IDEV session by opening a new window on a login node, and SSHing"
-    echo "    to the node of the job with the command:"
+    echo " -> You are executing idev again in the $MY_QUEUE queue."
+    echo "     In this queue only 1 idev interactive job is allowed."
+    echo "     You may have multiple windows open to the job (node) for an active"
+    echo "     IDEV session by opening a new window on a login node, and SSHing"
+    echo "     to the node of the job with the command:"
     echo ""
-    echo "                 ssh -Y $using_node   "
+    echo "                  ssh -Y $using_node   "
     echo ""
-    echo " ->In a new window you can customize your environment if"
-    echo "   you want to work interactively on different projects."  
+    echo " -> In a new window you can customize your environment if"
+    echo "    you want to work interactively on different projects."  
     echo ""
     do_exit=yes; OPT_ERR=2
   fi
@@ -2041,7 +2028,7 @@ fi
      echo   "${res_list[$i]}"
    done
 #################################### List Options End
-
+[[ $IDEV_DEBUG == LIST ]] && exit 
 
 
 ####################################beg Submit SLURM batch job
@@ -2233,7 +2220,8 @@ do
          echo ""
 #                                            Finally!
          echo -en "\007"
-         ssh -Y -A  -o "StrictHostKeyChecking no" $node
+         echo ssh -Y $MY_SSH_ARGS -o "StrictHostKeyChecking no" $node
+         ssh -Y $MY_SSH_ARGS -o "StrictHostKeyChecking no" $node
          exit
       fi
    fi
