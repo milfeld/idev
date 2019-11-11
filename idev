@@ -208,11 +208,11 @@
    IDEV_VER=1.5.7
 
    IDEV_SYM="->"
-   TACC_SUPPORTED_SYSTEM="stampede2, ls5, wrangler, hikari, maverick2, frontera"
+   TACC_SUPPORTED_SYSTEM="stampede2, ls5, wrangler, hikari, maverick2, frontera longhorn"
                                                                         #requires user define default total tasks
-   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2       hikari      wrangler      frontera)
-   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272 [hikari]=48 [wrangler]=48 [frontera]=112)
-   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68  [kikari]=24 [wrangler]=24 [frontera]=56)
+   SYSTEMS_REQUIRE_USER_DEFINE_n=(   knl,      ls5      stampede2       hikari      wrangler      frontera       longhorn)
+   SYSTEMS_MAX_USER_DEFINE_n=(      [knl]=272 [ls5]=48 [stampede2]=272 [hikari]=48 [wrangler]=48 [frontera]=112 [longhorn]=160)
+   SYSTEMS_SUGGESTED_USER_DEFINE_n=([knl]=68  [ls5]=24 [stampede2]=68  [kikari]=24 [wrangler]=24 [frontera]=56  [longhorn]=40)
 
    DOTHIS="#"  # comment out cp cmd in job script. Old z85_ scripts need file without
                # $USER in name-- line is activated with DOTHIS="" for stampede/maverick2
@@ -446,6 +446,7 @@ select_one(){
 # [[ $MY_SYS == "stampede2" ]]  && MY_QUEUE=development
   [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
   [[ $MY_SYS == "maverick"  ]]  && MY_QUEUE=gpu
+  [[ $MY_SYS == "longhorn"  ]]  && MY_QUEUE=v100
 
 #######################################################end system options
 
@@ -729,16 +730,16 @@ sleep_after_run=7
 
 case $MY_SYS in
 
+   frontera)
+             ;;
+
+     hikari)
+             ;;
 
    maverick2)
              ;;
 
-   stampede)
-             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
-             ;;
-
-   stampede2)
-             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
+   longhorn)
              ;;
 
         ls5)
@@ -748,7 +749,13 @@ case $MY_SYS in
              fi
              ;;
 
-     hikari)
+
+   stampede)
+             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
+             ;;
+
+   stampede2)
+             DOTHIS="" #execute cp cmd in job script-- old z85_ script needs this
              ;;
 
    wrangler)
@@ -761,8 +768,6 @@ case $MY_SYS in
              export IDEV_LOGIN_SOURCING=USER  #remove for production version
              ;;
 
-   frontera)
-             ;;
 
           *) echo " Don't know about this system ($MY_SYS)"
              exit 1
