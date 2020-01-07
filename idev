@@ -446,7 +446,7 @@ select_one(){
 # [[ $MY_SYS == "stampede2" ]]  && MY_QUEUE=development
   [[ $MY_SYS == "ls5" && $TACC_SLURM_CONF =~ _LG  ]] && MY_QUEUE=largemem512GB
   [[ $MY_SYS == "maverick"  ]]  && MY_QUEUE=gpu
-  [[ $MY_SYS == "longhorn"  ]]  && MY_QUEUE=v100
+  [[ $MY_SYS == "longhorn"  ]]  && MY_QUEUE=development
 
 #######################################################end system options
 
